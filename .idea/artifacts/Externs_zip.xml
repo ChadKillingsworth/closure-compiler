@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" build-on-make="true" name="Externs.zip">
+    <output-path>$PROJECT_DIR$/build/classes</output-path>
+    <root id="archive" name="externs.zip">
+      <element id="dir-copy" path="$PROJECT_DIR$/externs" />
+    </root>
+  </artifact>
+</component>

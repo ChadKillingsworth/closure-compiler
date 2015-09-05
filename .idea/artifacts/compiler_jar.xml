@@ -1,0 +1,14 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="compiler:jar">
+    <output-path>$PROJECT_DIR$/build/</output-path>
+    <root id="archive" name="compiler.jar">
+      <element id="module-output" name="closure-compiler" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/gson.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/guava.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/args4j.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/protobuf-java.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$PROJECT_DIR$/lib/jsr305.jar" path-in-jar="/" />
+      <element id="artifact" artifact-name="Externs.zip" />
+    </root>
+  </artifact>
+</component>
