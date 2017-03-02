@@ -25,6 +25,9 @@ import com.google.javascript.rhino.Token;
  * Checks for common errors, such as misplaced semicolons:
  * <pre>
  * if (x); act_now();
+ *
+ * (function() { return null;})()
+ * (function() {})()
  * </pre>
  *  or comparison against NaN:
  * <pre>
@@ -39,6 +42,10 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
   static final DiagnosticType SUSPICIOUS_SEMICOLON = DiagnosticType.warning(
       "JSC_SUSPICIOUS_SEMICOLON",
       "If this if/for/while really shouldn''t have a body, use '{}'");
+
+  static final DiagnosticType SUSPICIOUS_MISSING_SEMICOLON = DiagnosticType.warning(
+      "JSC_SUSPICIOUS_MISSING_SEMICOLON",
+      "Suspicious call expression. Did you forget a semicolon?");
 
   static final DiagnosticType SUSPICIOUS_COMPARISON_WITH_NAN =
       DiagnosticType.warning(
@@ -67,6 +74,7 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
     checkInvalidIn(t, n);
     checkNonObjectInstanceOf(t, n);
     checkNegatedLeftOperandOfInOperator(t, n);
+    checkCallInvocationOnNewLine(t, n);
   }
 
   private void checkMissingSemicolon(NodeTraversal t, Node n) {
@@ -153,6 +161,12 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
   private void checkNegatedLeftOperandOfInOperator(NodeTraversal t, Node n) {
     if (n.isIn() && n.getFirstChild().isNot()) {
       t.report(n.getFirstChild(), SUSPICIOUS_NEGATED_LEFT_OPERAND_OF_IN_OPERATOR);
+    }
+  }
+
+  private void checkCallInvocationOnNewLine(NodeTraversal t, Node n) {
+    if (n.isCall() && n.getFirstChild().isCall() && n.getBooleanProp(Node.FREE_CALL)) {
+      t.report(n, SUSPICIOUS_MISSING_SEMICOLON);
     }
   }
 }

@@ -3370,6 +3370,7 @@ public class Parser {
 
       // The Call expression productions
       while (peekCallSuffix()) {
+        start = getTreeStartLocation();
         switch (peekType()) {
           case OPEN_PAREN:
             ArgumentListTree arguments = parseArguments();

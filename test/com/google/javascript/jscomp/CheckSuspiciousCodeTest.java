@@ -214,4 +214,25 @@ public final class CheckSuspiciousCodeTest extends Es6CompilerTestCase {
     testWarning(
         "if (!x in y) {}", CheckSuspiciousCode.SUSPICIOUS_NEGATED_LEFT_OPERAND_OF_IN_OPERATOR);
   }
+
+  public void testCheckSuspiciousCall() {
+    testSame(
+        LINE_JOINER.join(
+            "(function() { return null; })",
+            ".call(Object)"));
+
+    testWarning(
+        LINE_JOINER.join(
+            "function foo() { return null; }",
+            "foo",
+            "()"),
+        CheckSuspiciousCode.SUSPICIOUS_MISSING_SEMICOLON);
+
+    testWarning(
+        LINE_JOINER.join(
+            "(function() { return null; })()",
+            "  (function(){})()"),
+        CheckSuspiciousCode.SUSPICIOUS_MISSING_SEMICOLON);
+    //SUSPICIOUS_MISSING_SEMICOLON
+  }
 }
