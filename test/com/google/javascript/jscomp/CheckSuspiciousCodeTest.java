@@ -233,6 +233,5 @@ public final class CheckSuspiciousCodeTest extends Es6CompilerTestCase {
             "(function() { return null; })()",
             "  (function(){})()"),
         CheckSuspiciousCode.SUSPICIOUS_MISSING_SEMICOLON);
-    //SUSPICIOUS_MISSING_SEMICOLON
   }
 }

@@ -165,7 +165,7 @@ final class CheckSuspiciousCode extends AbstractPostOrderCallback {
   }
 
   private void checkCallInvocationOnNewLine(NodeTraversal t, Node n) {
-    if (n.isCall() && n.getFirstChild().isCall() && n.getBooleanProp(Node.FREE_CALL)) {
+    if (n.isCall() && n.getBooleanProp(Node.FREE_CALL) && n.getFirstChild().getLineno() < n.getLineno()) {
       t.report(n, SUSPICIOUS_MISSING_SEMICOLON);
     }
   }

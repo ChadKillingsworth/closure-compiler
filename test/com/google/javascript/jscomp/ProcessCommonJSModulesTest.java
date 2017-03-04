@@ -553,7 +553,7 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
             "exports = Bar;"),
         LINE_JOINER.join(
             "goog.provide('module$test')",
-            "var module$test = /** @constructor */ function(){};",
+            "/** @constructor */ var module$test = function(){};",
             "/** @constructor */ function Bar$$module$test(){}",
             "Bar$$module$test.prototype.foobar = function() { alert('foobar'); };",
             "exports = Bar$$module$test;"));
@@ -765,7 +765,7 @@ public final class ProcessCommonJSModulesTest extends CompilerTestCase {
             "module.exports = Foo;"),
         LINE_JOINER.join(
             "goog.provide('module$test');",
-            "var module$test = /** @constructor */ function () {};",
+            "/** @constructor */ var module$test = function () {};",
             "/** @constructor */ function Bar$$module$test(Foo) { this.foo = new Foo(); }",
             "module$test.prototype.test = new Bar$$module$test(module$test);"));
   }

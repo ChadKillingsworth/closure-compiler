@@ -994,6 +994,8 @@ public final class ProcessCommonJSModules implements CompilerPass {
 
       Var newNameDeclaration = t.getScope().getVar(newName);
 
+      JSDocInfo parentJsDoc = NodeUtil.getBestJSDocInfo(parent);
+      JSDocInfoBuilder jsDocInfo = JSDocInfoBuilder.maybeCopyFrom(parentJsDoc);
       switch (parent.getToken()) {
         case CLASS:
           if (parent.getIndexOfChild(nameRef) == 0
@@ -1038,10 +1040,18 @@ public final class ProcessCommonJSModules implements CompilerPass {
             Node expr;
             if (!newNameIsQualified && newNameDeclaration == null) {
               expr = IR.var(newNameRef, IR.nullNode()).useSourceInfoIfMissingFromForTree(nameRef);
+              if (parentJsDoc != null) {
+                expr.setJSDocInfo(jsDocInfo.build());
+                parent.setJSDocInfo(null);
+              }
             } else {
               expr =
                   IR.exprResult(IR.assign(newNameRef, IR.nullNode()))
                       .useSourceInfoIfMissingFromForTree(nameRef);
+              if (parentJsDoc != null) {
+                expr.getFirstChild().setJSDocInfo(jsDocInfo.build());
+                parent.setJSDocInfo(null);
+              }
             }
             grandparent.replaceChild(parent, expr);
             if (expr.isVar()) {
