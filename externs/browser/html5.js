@@ -29,6 +29,8 @@
  * @externs
  */
 
+/** @type {?HTMLSlotElement} */
+Node.prototype.assignedSlot;
 
 /**
  * Note: In IE, the contains() method only exists on Elements, not Nodes.
@@ -43,6 +45,8 @@
  */
 Node.prototype.contains = function(n) {};
 
+/** @type {boolean} */
+Node.prototype.isConnected;
 
 /**
  * @constructor
@@ -478,7 +482,7 @@ CanvasRenderingContext2D.prototype.drawImage = function(
 /**
  * @param {number} sw
  * @param {number} sh
- * @return {ImageData}
+ * @return {!ImageData}
  * @nosideeffects
  */
 CanvasRenderingContext2D.prototype.createImageData = function(sw, sh) {};
@@ -488,7 +492,7 @@ CanvasRenderingContext2D.prototype.createImageData = function(sw, sh) {};
  * @param {number} sy
  * @param {number} sw
  * @param {number} sh
- * @return {ImageData}
+ * @return {!ImageData}
  * @throws {Error}
  */
 CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {};
@@ -1304,8 +1308,37 @@ SharedWorkerGlobalScope.prototype.name;
  */
 SharedWorkerGlobalScope.prototype.onconnect;
 
+/** @type {!Array<string>|undefined} */
+HTMLElement.observedAttributes;
+
+/**
+ * @param {!Document} oldDocument
+ * @param {!Document} newDocument
+ */
+HTMLElement.prototype.adoptedCallback = function(oldDocument, newDocument) {};
+
+/**
+ * @param {!{mode: string}} options
+ * @return {!ShadowRoot}
+ */
+HTMLElement.prototype.attachShadow = function(options) {};
+
+/**
+ * @param {string} attributeName
+ * @param {?string} oldValue
+ * @param {?string} newValue
+ * @param {?string} namespace
+ */
+HTMLElement.prototype.attributeChangedCallback = function(attributeName, oldValue, newValue, namespace) {};
+
+/** @type {function()|undefined} */
+HTMLElement.prototype.connectedCallback;
+
 /** @type {Element} */
 HTMLElement.prototype.contextMenu;
+
+/** @type {function()|undefined} */
+HTMLElement.prototype.disconnectedCallback;
 
 /** @type {boolean} */
 HTMLElement.prototype.draggable;
@@ -3450,6 +3483,7 @@ Document.prototype.fonts;
 
 
 /**
+ * @type {?HTMLScriptElement}
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Document/currentScript
  */
 Document.prototype.currentScript;
@@ -4291,3 +4325,69 @@ Plugin.prototype.length;
 
 /** @type {string} */
 Plugin.prototype.name;
+
+/**
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#custom-elements
+ * @constructor
+ */
+function CustomElementRegistry() {}
+
+/**
+ * @param {string} tagName
+ * @param {!function(new:HTMLElement)} klass
+ * @param {{extends: string}=} options
+ */
+CustomElementRegistry.prototype.define = function (tagName, klass, options) {};
+
+/**
+ * @param {string} tagName
+ * @return {?function(new:HTMLElement)}
+ */
+CustomElementRegistry.prototype.get = function(tagName) {};
+
+/**
+ * @param {string} tagName
+ * @return {Promise<!function(new:HTMLElement)>}
+ */
+CustomElementRegistry.prototype.whenDefined = function(tagName) {};
+
+/** @type {!CustomElementRegistry} */
+var customElements;
+
+/**
+ * @constructor
+ * @extends {HTMLElement}
+ */
+function HTMLSlotElement() {}
+
+/**
+ * @param {!{flatten: boolean}=} options
+ * @return {!Array<!Node>}
+ */
+HTMLSlotElement.prototype.assignedNodes = function(options) {};
+
+/** @type {boolean} */
+Event.prototype.composed;
+
+/**
+ * @return {!Array<!(Element|ShadowRoot|Document|Window)>}
+ */
+Event.prototype.composedPath = function() {};
+
+/**
+ * @constructor
+ * @param {{
+ *     firesTouchEvents: (string|undefined),
+ *     pointerMovementScrolls: (string|undefined)
+ *   }=} opt_options
+ */
+function InputDeviceCapabilities(opt_options){}
+
+/** @type {boolean} */
+InputDeviceCapabilities.prototype.firesTouchEvents;
+
+/** @type {boolean} */
+InputDeviceCapabilities.prototype.pointerMovementScrolls;
+
+/** @type {?InputDeviceCapabilities} */
+MouseEvent.prototype.sourceCapabilities;

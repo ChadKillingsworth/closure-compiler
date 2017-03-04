@@ -2912,6 +2912,14 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "  } else if (typeof x.prop.prop2 === 'number') {",
         "  }",
         "}"));
+
+    typeCheck(LINE_JOINER.join(
+        "function f(x) {",
+        "  if (typeof x === 'symbol') {",
+        // We don't know what symbols are yet.
+        "    var /** null */ n = x;",
+        "  }",
+        "}"));
   }
 
   public void testAssignWithOp() {
@@ -19433,5 +19441,37 @@ public final class NewTypeInferenceTest extends NewTypeInferenceTestBase {
         "function f(x) {",
         "  return x.asdf;",
         "}"));
+  }
+
+  public void testGoogGlobalAsWindow() {
+    typeCheck(LINE_JOINER.join(
+        CLOSURE_BASE,
+        "goog.global = this;",
+        "/** @type {!Object<string, string>|undefined} */",
+        "goog.global.foo;",
+        "if (goog.global.foo) {",
+        "  var z = goog.global.foo;",
+        "}"));
+  }
+
+  public void testSuppressInvalidCasts() {
+    typeCheck(LINE_JOINER.join(
+        "/** @suppress {invalidCasts} */",
+        "function f() {",
+        "  /** @type {number} */ ('asdf');",
+        "}"));
+  }
+
+  public void testRegisterStrayPropertyOnReceiverWithUndefined() {
+    typeCheck(LINE_JOINER.join(
+        "/** @constructor */",
+        "function Foo() {}",
+        "function f(/** (!Foo|undefined) */ x) {",
+        "  x.myprop;",
+        "}",
+        "function g(/** !Foo */ x) {",
+        "  return x.myprop;",
+        "}"),
+        NewTypeInference.NULLABLE_DEREFERENCE);
   }
 }
