@@ -715,7 +715,7 @@ class GlobalTypeInfo implements CompilerPass, TypeIRegistry {
       // super interface, o/w checkSuperProperty will break for its subclasses.
       if (isCtorDefinedByCall(NodeUtil.getBestLValue(current.getDefSite()))) {
         for (PropertyDef inheritedDef : inheritedPropDefs) {
-          if (!current.mayHaveProp(pname)) {
+          if (!current.hasProp(pname)) {
             propertyDefs.put(current, pname, inheritedDef);
           }
         }
