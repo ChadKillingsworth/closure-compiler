@@ -55,6 +55,7 @@ import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.JSTypeExpression;
 import com.google.javascript.rhino.Node;
+import com.google.javascript.rhino.ObjectTypeI;
 import com.google.javascript.rhino.SimpleErrorReporter;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.TypeI;
@@ -736,16 +737,7 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
   // we don't need to store these properties in the propertyIndex separately.
   private static boolean isObjectLiteralThatCanBeSkipped(JSType t) {
     t = t.restrictByNotNullOrUndefined();
-    // Inline-record type declaration
-    if (t.toMaybeRecordType() != null) {
-      return true;
-    }
-    // Type of an object-literal value
-    else if (t instanceof PrototypeObjectType) {
-      PrototypeObjectType tObj = (PrototypeObjectType) t;
-      return tObj.isAnonymous();
-    }
-    return false;
+    return t.isRecordType() || t.isLiteralObject();
   }
 
   void registerDroppedPropertiesInUnion(RecordType subtype, RecordType supertype) {
@@ -1598,6 +1590,17 @@ public class JSTypeRegistry implements TypeIRegistry, Serializable {
     return (templateKeys.isEmpty() && templateValues.isEmpty())
         ? emptyTemplateTypeMap
             : new TemplateTypeMap(this, templateKeys, templateValues);
+  }
+
+  public ObjectTypeI instantiateGenericsWithUnknown(ObjectType obj) {
+    if (obj.isTemplatizedType()) {
+      ImmutableList.Builder<JSType> unknowns = ImmutableList.builder();
+      for (TemplateType ignore : obj.getTemplateTypeMap().getTemplateKeys()) {
+        unknowns.add(getNativeType(UNKNOWN_TYPE));
+      }
+      return createTemplatizedType(obj.toMaybeTemplatizedType().getRawType(), unknowns.build());
+    }
+    return obj;
   }
 
   /**

@@ -24,6 +24,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.javascript.jscomp.AbstractCompiler.MostRecentTypechecker;
 import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
 import com.google.javascript.jscomp.testing.BlackHoleErrorManager;
 import com.google.javascript.jscomp.type.ReverseAbstractInterpreter;
@@ -201,6 +202,13 @@ public abstract class CompilerTestCase extends TestCase {
           " * @return {!Object}",
           " */",
           "function Object(opt_value) {}",
+          "/** @return {string} */",
+          "Object.prototype.toString = function() {};",
+          "/**",
+          " * @param {*} propertyName",
+          " * @return {boolean}",
+          " */",
+          "Object.prototype.hasOwnProperty = function(propertyName) {};",
           "/** @type {?Function} */ Object.prototype.constructor;",
           "Object.defineProperties = function(obj, descriptors) {};",
           "/** @constructor",
@@ -211,6 +219,8 @@ public abstract class CompilerTestCase extends TestCase {
           "/** @type {!Function} */ Function.prototype.call;",
           "/** @type {number} */",
           "Function.prototype.length;",
+          "/** @type {string} */",
+          "Function.prototype.name;",
           "/** @constructor",
           " * @param {*=} arg",
           " * @return {string} */",
@@ -250,6 +260,14 @@ public abstract class CompilerTestCase extends TestCase {
           " * @template T",
           " */",
           "Array.prototype.shift = function() {};",
+          "/**",
+          " * @param {?function(this:S, T, number, !Array<T>): ?} callback",
+          " * @param {S=} opt_thisobj",
+          " * @this {?IArrayLike<T>|string}",
+          " * @template T,S",
+          " * @return {undefined}",
+          " */",
+          "Array.prototype.forEach = function(callback, opt_thisobj) {};",
           "/**",
           " * @constructor",
           " * @template T",
@@ -598,7 +616,7 @@ public abstract class CompilerTestCase extends TestCase {
   private static TypeCheck createTypeCheck(Compiler compiler) {
     ReverseAbstractInterpreter rai =
         new SemanticReverseAbstractInterpreter(compiler.getTypeRegistry());
-
+    compiler.setMostRecentTypechecker(MostRecentTypechecker.OTI);
     return new TypeCheck(compiler, rai, compiler.getTypeRegistry());
   }
 

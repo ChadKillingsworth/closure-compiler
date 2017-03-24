@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 The Closure Compiler Authors.
+ * Copyright 2017 The Closure Compiler Authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,23 +14,15 @@
  * limitations under the License.
  */
 
-'require es6/util/iteratorfromarray';
-'require util/polyfill';
+package com.google.javascript.jscomp;
 
-$jscomp.polyfill('Array.prototype.values', function(orig) {
-  if (orig) return orig;
+import java.util.List;
 
-  /**
-   * Returns an iterator of values of the given array.
-   *
-   * @this {!IArrayLike<VALUE>}
-   * @return {!IteratorIterable<VALUE>}
-   * @template VALUE
-   * @suppress {reportUnknownTypes}
-   */
-  var polyfill = function() {
-    return $jscomp.iteratorFromArray(this, function(k, v) { return v; });
-  };
+/** Gwt-compatible no-op version for {@code PrebuildAst}. */
+class PrebuildAst {
 
-  return polyfill;
-}, 'es6', 'es3');
+  PrebuildAst(AbstractCompiler compiler, int numParalleThreads) {
+  }
+
+  void prebuild(List<CompilerInput> inputList) {}
+}

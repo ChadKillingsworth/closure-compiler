@@ -16,6 +16,7 @@
 
 /**
  * @fileoverview Provides methods to polyfill native objects.
+ * @suppress {reportUnknownTypes}
  */
 'require base';
 
@@ -33,6 +34,7 @@
  * @param {?} target
  * @param {string} property
  * @param {?} descriptor
+ * @suppress {reportUnknownTypes}
  */
 $jscomp.defineProperty =
     typeof Object.defineProperties == 'function' ?

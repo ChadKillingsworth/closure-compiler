@@ -30,6 +30,7 @@ import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.ObjectTypeI;
 import com.google.javascript.rhino.TypeI;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -284,8 +285,12 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     return TRUTHY_MASK == getMask() || TRUE_MASK == getMask();
   }
 
-  private boolean hasTruthyMask() {
+  private boolean isTheTruthyType() {
     return TRUTHY_MASK == getMask();
+  }
+
+  private boolean isTheTrueType() {
+    return TRUE_MASK == getMask();
   }
 
   public boolean isFalseOrFalsy() {
@@ -306,8 +311,12 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     return mask != BOTTOM_MASK && (mask | falsyMask) == falsyMask;
   }
 
-  private boolean hasFalsyMask() {
+  private boolean isTheFalsyType() {
     return FALSY_MASK == getMask();
+  }
+
+  private boolean isTheFalseType() {
+    return FALSE_MASK == getMask();
   }
 
   public boolean isBoolean() {
@@ -316,6 +325,11 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
 
   public boolean isString() {
     return STRING_MASK == getMask();
+  }
+
+  @Override
+  public boolean isStringValueType() {
+    return isString();
   }
 
   public boolean isNumber() {
@@ -482,7 +496,7 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   public boolean isUnion() {
     if (isBottom() || isTop() || isUnknown()
         || isScalar() || isTypeVariable() || isEnumElement()
-        || hasTruthyMask() || hasFalsyMask()) {
+        || isTheTruthyType() || isTheFalsyType()) {
       return false;
     }
     return !(getMask() == NON_SCALAR_MASK && getObjs().size() == 1);
@@ -574,8 +588,8 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (rhs.isBottom()) {
       return lhs;
     }
-    if (lhs.hasTruthyMask() || lhs.hasFalsyMask()
-        || rhs.hasTruthyMask() || rhs.hasFalsyMask()) {
+    if (lhs.isTheTruthyType() || lhs.isTheFalsyType()
+        || rhs.isTheTruthyType() || rhs.isTheFalsyType()) {
       return commonTypes.UNKNOWN;
     }
     if (lhs.getTypeVar() != null && rhs.getTypeVar() != null
@@ -755,23 +769,27 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
    */
   public boolean unifyWith(JSType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap) {
-    return unifyWithSubtype(
-        other, typeParameters, typeMultimap, SubtypeCache.create());
+    return unifyWithSubtype(other, typeParameters, typeMultimap, SubtypeCache.create());
   }
 
   boolean unifyWithSubtype(JSType other, List<String> typeParameters,
       Multimap<String, JSType> typeMultimap, SubtypeCache subSuperMap) {
     Preconditions.checkNotNull(other);
+    if (other.isTheTrueType() || other.isTheFalseType()) {
+      other = this.commonTypes.BOOLEAN;
+    }
     if (this.isUnknown() || this.isTop()) {
       return true;
-    } else if (getMask() == TYPEVAR_MASK
-        && typeParameters.contains(getTypeVar())) {
+    } else if (getMask() == TYPEVAR_MASK && typeParameters.contains(getTypeVar())) {
       updateTypemap(typeMultimap, getTypeVar(), other);
       return true;
     } else if (other.isUnknown() || other.isTrueOrTruthy()) {
       return true;
     } else if (other.isTop()) {
-      // T|number doesn't unify with TOP
+      if (hasTypeVariable() && typeParameters.contains(getTypeVar())) {
+        updateTypemap(typeMultimap, getTypeVar(), other);
+        return true;
+      }
       return false;
     }
 
@@ -846,10 +864,10 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (other.isTop() || other.isUnknown() || this == other) {
       return this;
     }
-    if (other.hasTruthyMask()) {
+    if (other.isTheTruthyType()) {
       return makeTruthy();
     }
-    if (hasTruthyMask()) {
+    if (isTheTruthyType()) {
       // If the only thing we know about this type is that it's truthy, that's very
       // little information, so we loosen the other type to avoid spurious warnings.
       JSType otherTruthy = other.makeTruthy();
@@ -857,10 +875,10 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
           ? otherTruthy.withLoose()
           : otherTruthy;
     }
-    if (other.hasFalsyMask()) {
+    if (other.isTheFalsyType()) {
       return makeFalsy();
     }
-    if (hasFalsyMask()) {
+    if (isTheFalsyType()) {
       return other.makeFalsy();
     }
     if (this.isTop()) {
@@ -927,16 +945,16 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (lhs.isBottom() || rhs.isBottom()) {
       return lhs.commonTypes.BOTTOM;
     }
-    if (lhs.hasTruthyMask()) {
+    if (lhs.isTheTruthyType()) {
       return rhs.makeTruthy();
     }
-    if (lhs.hasFalsyMask()) {
+    if (lhs.isTheFalsyType()) {
       return rhs.makeFalsy();
     }
-    if (rhs.hasTruthyMask()) {
+    if (rhs.isTheTruthyType()) {
       return lhs.makeTruthy();
     }
-    if (rhs.hasFalsyMask()) {
+    if (rhs.isTheFalsyType()) {
       return lhs.makeFalsy();
     }
     int newMask = lhs.getMask() & rhs.getMask();
@@ -1090,19 +1108,19 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     return isSubtypeOf(other, SubtypeCache.create());
   }
 
-  public static MismatchInfo whyNotSubtypeOf(JSType t1, JSType t2) {
-    if (t1.isSingletonObj() && t2.isSingletonObj()) {
+  public static MismatchInfo whyNotSubtypeOf(JSType found, JSType expected) {
+    if (found.isSingletonObj() && expected.isSingletonObj()) {
       MismatchInfo[] boxedInfo = new MismatchInfo[1];
       ObjectType.whyNotSubtypeOf(
-          t1.getObjTypeIfSingletonObj(),
-          t2.getObjTypeIfSingletonObj(),
+          found.getObjTypeIfSingletonObj(),
+          expected.getObjTypeIfSingletonObj(),
           boxedInfo);
       return boxedInfo[0];
     }
-    if (t1.isUnion()) {
+    if (found.isUnion()) {
       MismatchInfo[] boxedInfo = new MismatchInfo[1];
       boolean areSubtypes =
-          t1.isSubtypeOfHelper(true, t2, SubtypeCache.create(), boxedInfo);
+          found.isSubtypeOfHelper(true, expected, SubtypeCache.create(), boxedInfo);
       Preconditions.checkState(!areSubtypes);
       return boxedInfo[0];
     }
@@ -1129,10 +1147,10 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     if (isUnknown() || other.isUnknown() || other.isTop()) {
       return true;
     }
-    if (hasTruthyMask()) {
+    if (isTheTruthyType()) {
       return !other.makeTruthy().isBottom();
     }
-    if (hasFalsyMask()) {
+    if (isTheFalsyType()) {
       return !other.makeFalsy().isBottom();
     }
     if (!EnumType.areSubtypes(this, other, subSuperMap)) {
@@ -1313,7 +1331,7 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   }
 
   public JSType getProp(QualifiedName qname) {
-    if (isBottom() || isUnknown() || hasTruthyMask()) {
+    if (isBottom() || isUnknown() || isTheTruthyType()) {
       return this.commonTypes.UNKNOWN;
     }
     Preconditions.checkState(!getObjs().isEmpty() || !getEnums().isEmpty(),
@@ -1786,7 +1804,7 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
       // Object.prototype is the only case where we are equal to our own prototype.
       // In this case, we should return null.
       Preconditions.checkState(
-          this.isUnknownObject(),
+          isBuiltinObjectPrototype(),
           "Failed to reach Object.prototype in prototype chain, unexpected self-link found at %s",
           this);
       return null;
@@ -1840,12 +1858,32 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
 
   @Override
   public boolean isUnknownObject() {
-    return isSingletonObj() && getNominalTypeIfSingletonObj().isBuiltinObject();
+    if (isSingletonObj()) {
+      ObjectType obj = getObjTypeIfSingletonObj();
+      NominalType nt = getNominalTypeIfSingletonObj();
+      return (nt.isBuiltinObject() || nt.isLiteralObject())
+          && !obj.isEnumObject() && !obj.isPrototypeObject();
+    }
+    return false;
+  }
+
+  boolean isBuiltinObjectPrototype() {
+    ObjectType obj = getObjTypeIfSingletonObj();
+    return obj != null && obj.getNominalType().isBuiltinObject() && obj.isPrototypeObject();
+  }
+
+  @Override
+  public boolean isLiteralObject() {
+    return isSingletonObj() && getNominalTypeIfSingletonObj().isLiteralObject();
   }
 
   @Override
   public boolean isInstanceofObject() {
-    return isSingletonObj() && getNominalTypeIfSingletonObj().isLiteralObject();
+    if (isSingletonObj()) {
+      NominalType nt = getNominalTypeIfSingletonObj();
+      return nt.isLiteralObject() || nt.isBuiltinObject();
+    }
+    return false;
   }
 
   public boolean mayContainUnknownObject() {
@@ -1930,11 +1968,13 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
       return ImmutableSet.of();
     }
     NominalType nt = funType.getInstanceTypeOfCtor().getNominalTypeIfSingletonObj();
-    ImmutableSet.Builder<ObjectTypeI> builder = new ImmutableSet.Builder<>();
+    Set<ObjectTypeI> interfaces = new HashSet<>();
     for (NominalType i : nt.getInstantiatedInterfaces()) {
-      builder.add(this.commonTypes.fromFunctionType(i.getConstructorFunction()));
+      if (!i.isBuiltinObject()) { // interfaces inherit from Object, remove it here?
+        interfaces.add(i.getInstanceAsJSType());
+      }
     }
-    return builder.build();
+    return interfaces;
   }
 
   @Override
@@ -1946,7 +1986,7 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
   @Override
   public boolean hasOwnProperty(String propertyName) {
     ObjectType obj = getObjTypeIfSingletonObj();
-    return obj != null && obj.hasOwnPropery(new QualifiedName(propertyName));
+    return obj != null && obj.hasOwnProperty(new QualifiedName(propertyName));
   }
 
   @Override
@@ -1954,6 +1994,15 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
     NominalType nt = getNominalTypeIfSingletonObj();
     return nt.isGeneric()
         ? nt.getRawNominalTypeAfterTypeChecking().getInstanceAsJSType() : null;
+  }
+
+  @Override
+  public ObjectTypeI instantiateGenericsWithUnknown() {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    if (nt != null && nt.isGeneric()) {
+      return nt.instantiateGenericsWithUnknown().getInstanceAsJSType();
+    }
+    return this;
   }
 
   @Override
@@ -1985,17 +2034,29 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
 
   @Override
   public Collection<JSType> getDirectImplementors() {
-    throw new UnsupportedOperationException();
+    Set<JSType> result = new HashSet<>();
+    NominalType nt = getNominalTypeIfSingletonObj();
+    if (nt != null) {
+      for (RawNominalType rawType : nt.getSubtypes()) {
+        result.add(this.commonTypes.fromFunctionType(rawType.getConstructorFunction()));
+      }
+    }
+    return result;
   }
 
   @Override
   public ObjectTypeI getPrototypeProperty() {
-    throw new UnsupportedOperationException();
+    return getProp(new QualifiedName("prototype"));
   }
 
   @Override
-  public ObjectTypeI getTopDefiningInterface(String propName) {
-    throw new UnsupportedOperationException();
+  public JSType getTopDefiningInterface(String pname) {
+    NominalType nt = getNominalTypeIfSingletonObj();
+    if (nt != null && nt.isInterface()) {
+      nt = nt.getTopDefiningInterface(pname);
+      return nt == null ? null : nt.getInstanceAsJSType();
+    }
+    return null;
   }
 
   @Override
@@ -2004,6 +2065,21 @@ public abstract class JSType implements TypeI, FunctionTypeI, ObjectTypeI {
       return this.commonTypes.fromFunctionType(getObjTypeIfSingletonObj().getOwnerFunction());
     }
     return null;
+  }
+
+  @Override
+  public boolean isSubtypeWithoutStructuralTyping(TypeI other) {
+    if (!isSubtypeOf(other)) {
+      return false;
+    }
+    NominalType thisNt = getNominalTypeIfSingletonObj();
+    NominalType otherNt = ((JSType) other).getNominalTypeIfSingletonObj();
+    return thisNt == null || otherNt == null || thisNt.isNominalSubtypeOf(otherNt);
+  }
+
+  @Override
+  public Iterable<TypeI> getParameterTypes() {
+    return Preconditions.checkNotNull(getFunType()).getParameterTypes();
   }
 }
 

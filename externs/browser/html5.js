@@ -170,6 +170,98 @@ CanvasPathMethods.prototype.rect = function(x, y, w, h) {};
 CanvasPathMethods.prototype.arc = function(
     x, y, radius, startAngle, endAngle, opt_anticlockwise) {};
 
+/**
+ * @constructor
+ * @implements {CanvasPathMethods}
+ * @see https://html.spec.whatwg.org/multipage/scripting.html#path2d-objects
+ */
+function Path2D() {}
+
+/**
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.closePath = function() {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.moveTo = function(x, y) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.lineTo = function(x, y) {};
+
+/**
+ * @param {number} cpx
+ * @param {number} cpy
+ * @param {number} x
+ * @param {number} y
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.quadraticCurveTo = function(cpx, cpy, x, y) {};
+
+/**
+ * @param {number} cp1x
+ * @param {number} cp1y
+ * @param {number} cp2x
+ * @param {number} cp2y
+ * @param {number} x
+ * @param {number} y
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.bezierCurveTo = function(
+    cp1x, cp1y, cp2x, cp2y, x, y) {};
+
+/**
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {number} radius
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.arcTo = function(x1, y1, x2, y2, radius) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.rect = function(x, y, w, h) {};
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius
+ * @param {number} startAngle
+ * @param {number} endAngle
+ * @param {boolean=} optAnticlockwise
+ * @return {undefined}
+ * @override
+ */
+Path2D.prototype.arc = function(
+    x, y, radius, startAngle, endAngle, optAnticlockwise) {};
+
+/**
+ * @param {Path2D} path
+ * @return {undefined}
+ */
+Path2D.prototype.addPath = function(path) {}
+
 
 /**
  * @constructor
@@ -397,21 +489,24 @@ CanvasRenderingContext2D.prototype.ellipse = function(
 };
 
 /**
- * @param {string=} opt_fillRule
+ * @param {Path2D|string=} optFillRuleOrPath
+ * @param {string=} optFillRule
  * @return {undefined}
  */
-CanvasRenderingContext2D.prototype.fill = function(opt_fillRule) {};
+CanvasRenderingContext2D.prototype.fill = function(optFillRuleOrPath, optFillRule) {};
 
 /**
+ * @param {Path2D=} optStroke
  * @return {undefined}
  */
-CanvasRenderingContext2D.prototype.stroke = function() {};
+CanvasRenderingContext2D.prototype.stroke = function(optStroke) {};
 
 /**
- * @param {string=} opt_fillRule
+ * @param {Path2D|string=} optFillRuleOrPath
+ * @param {string=} optFillRule
  * @return {undefined}
  */
-CanvasRenderingContext2D.prototype.clip = function(opt_fillRule) {};
+CanvasRenderingContext2D.prototype.clip = function(optFillRuleOrPath, optFillRule) {};
 
 /**
  * @param {number} x
@@ -881,26 +976,15 @@ Document.prototype.head;
  */
 function DOMApplicationCache() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 DOMApplicationCache.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 DOMApplicationCache.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 DOMApplicationCache.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -1034,26 +1118,14 @@ function importScripts(var_args) {}
  */
 function WebWorker() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-WebWorker.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @override */
+WebWorker.prototype.addEventListener = function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 WebWorker.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 WebWorker.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -1089,26 +1161,13 @@ WebWorker.prototype.onerror;
  */
 function Worker(opt_arg0) {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Worker.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @override */
+Worker.prototype.addEventListener = function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-Worker.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @override */
+Worker.prototype.removeEventListener = function(type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 Worker.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -1156,26 +1215,15 @@ Worker.prototype.onerror;
  */
 function SharedWorker(scriptURL, opt_name) {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 SharedWorker.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 SharedWorker.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 SharedWorker.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -1379,7 +1427,7 @@ var GetRootNodeOptions;
 /**
  * @see https://dom.spec.whatwg.org/#dom-node-getrootnode
  * @param {GetRootNodeOptions=} opt_options
- * @return {?Node}
+ * @return {!Node}
  */
 Node.prototype.getRootNode = function(opt_options) {};
 
@@ -1831,24 +1879,16 @@ TextTrack.prototype.cues;
  */
 TextTrack.prototype.mode;
 
-/**
- * @override
- * @return {undefined}
- */
-TextTrack.prototype.addEventListener = function(type, listener, useCapture) {};
+/** @override */
+TextTrack.prototype.addEventListener = function(
+    type, listener, opt_useCapture) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 TextTrack.prototype.dispatchEvent = function(evt) {};
 
-/**
- * @override
- * @return {undefined}
- */
-TextTrack.prototype.removeEventListener = function(type, listener, useCapture)
-    {};
+/** @override */
+TextTrack.prototype.removeEventListener = function(
+    type, listener, opt_options) {};
 
 
 
@@ -2046,26 +2086,15 @@ MessageChannel.prototype.port2;
  */
 function MessagePort() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-MessagePort.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @override */
+MessagePort.prototype.addEventListener = function(type, listener, opt_options) {
+};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 MessagePort.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 MessagePort.prototype.dispatchEvent = function(evt) {};
 
 
@@ -2198,14 +2227,14 @@ BroadcastChannel.prototype.close;
 
 /** @override */
 BroadcastChannel.prototype.addEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_options) {};
 
 /** @override */
 BroadcastChannel.prototype.dispatchEvent = function(evt) {};
 
 /** @override */
 BroadcastChannel.prototype.removeEventListener = function(
-    type, listener, useCapture) {};
+    type, listener, opt_options) {};
 
 /**
  * An EventHandler property that specifies the function to execute when a
@@ -2539,26 +2568,14 @@ WebSocket.CLOSING = 2;
  */
 WebSocket.CLOSED = 3;
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
-WebSocket.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+/** @override */
+WebSocket.prototype.addEventListener = function(type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 WebSocket.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 WebSocket.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -2662,6 +2679,13 @@ History.prototype.state;
  * @type {string}
  */
 History.prototype.scrollRestoration;
+
+/**
+ * Add history property to Window.
+ *
+ * @type {!History}
+ */
+Window.prototype.history;
 
 /**
  * @see http://www.whatwg.org/specs/web-apps/current-work/#popstateevent
@@ -2845,26 +2869,15 @@ XMLHttpRequest.prototype.mozResponseArrayBuffer;
  */
 function XMLHttpRequestEventTarget() {}
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 XMLHttpRequestEventTarget.prototype.addEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @param {boolean=} opt_useCapture
- * @override
- * @return {undefined}
- */
+/** @override */
 XMLHttpRequestEventTarget.prototype.removeEventListener = function(
-    type, listener, opt_useCapture) {};
+    type, listener, opt_options) {};
 
-/**
- * @override
- * @return {boolean}
- */
+/** @override */
 XMLHttpRequestEventTarget.prototype.dispatchEvent = function(evt) {};
 
 /**
@@ -2894,7 +2907,7 @@ function Image(opt_width, opt_height) {}
  * Dataset collection.
  * This is really a DOMStringMap but it behaves close enough to an object to
  * pass as an object.
- * @type {Object}
+ * @type {Object<string, string>}
  * @const
  */
 HTMLElement.prototype.dataset;

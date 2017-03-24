@@ -15,6 +15,7 @@
  */
 
 'require base';
+'require es6/promise';
 
 /**
  * Handle the execution of an async function.
@@ -36,6 +37,7 @@
  * ```
  * @param {!Generator<?>} generator
  * @return {!Promise<?>}
+ * @suppress {reportUnknownTypes}
  */
 $jscomp.executeAsyncGenerator = function(generator) {
   function passValueToGenerator(value) {

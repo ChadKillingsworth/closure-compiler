@@ -14,23 +14,20 @@
  * limitations under the License.
  */
 
-'require es6/util/iteratorfromarray';
-'require util/polyfill';
+/**
+ * @fileoverview
+ * Tests identifier names.
+ */
+goog.require('goog.testing.jsunit');
 
-$jscomp.polyfill('Array.prototype.values', function(orig) {
-  if (orig) return orig;
-
-  /**
-   * Returns an iterator of values of the given array.
-   *
-   * @this {!IArrayLike<VALUE>}
-   * @return {!IteratorIterable<VALUE>}
-   * @template VALUE
-   * @suppress {reportUnknownTypes}
-   */
-  var polyfill = function() {
-    return $jscomp.iteratorFromArray(this, function(k, v) { return v; });
-  };
-
-  return polyfill;
-}, 'es6', 'es3');
+// Test Scanner.java workaround to prevent GWT-compiled compiler from choking
+// on a special character used by Angular in some names.
+// Note that the non-GWT compiler allows all legal JS identifier names, but
+// due to GWT lack for Unicode support for Java's Character.is* methods, the
+// GWT-compiled compiler does not.
+function testUnicodeInVariableName() {
+  var ɵ = true;
+  // Note: a failure of this test actually manifests as
+  // No tests found in given test case: identifier_test
+  assertTrue(ɵ);
+}

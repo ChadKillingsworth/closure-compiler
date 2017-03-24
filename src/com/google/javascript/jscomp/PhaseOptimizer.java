@@ -69,6 +69,7 @@ class PhaseOptimizer implements CompilerPass {
   // Compiler/reportChangeToScope must call reportCodeChange to update all
   // change handlers. This flag prevents double update in ScopedChangeHandler.
   private boolean crossScopeReporting;
+  private final boolean useSizeHeuristicToStopOptimizationLoop;
 
   // Used for sanity checks between loopable passes
   private Node lastAst;
@@ -85,26 +86,32 @@ class PhaseOptimizer implements CompilerPass {
     RUN_PASSES_THAT_CHANGED_STH_IN_PREV_ITER
   }
 
-  // NOTE(dimvar): There used to be some code that tried various orderings of
-  // loopable passes and picked the fastest one. This code became stale
-  // gradually and I decided to remove it. It was also never tried after the
-  // new pass scheduler was written. If we need to revisit this order in the
-  // future, we should write new code to do it.
+  /**
+   * NOTE(dimvar): There used to be some code that tried various orderings of loopable passes
+   * and picked the fastest one. This code became stale gradually and I decided to remove it.
+   * It was also never tried after the new pass scheduler was written.
+   * If we need to revisit this order in the future, we should write new code to do it.
+   *
+   * It is important that inlineVariables and peepholeOptimizations run after inlineFunctions,
+   * because inlineFunctions relies on them to clean up patterns it introduces. This affects our
+   * size-based loop-termination heuristic.
+   */
   @VisibleForTesting
-  static final List<String> OPTIMAL_ORDER = ImmutableList.of(
-     "inlineFunctions",
-     "inlineVariables",
-     "deadAssignmentsElimination",
-     "collapseObjectLiterals",
-     "removeUnusedVars",
-     "removeUnusedPrototypeProperties",
-     "removeUnusedClassProperties",
-     "peepholeOptimizations",
-     "minimizeExitPoints",
-     "removeUnreachableCode");
+  static final ImmutableList<String> OPTIMAL_ORDER =
+      ImmutableList.of(
+          "inlineFunctions",
+          "inlineVariables",
+          "deadAssignmentsElimination",
+          "collapseObjectLiterals",
+          "removeUnusedVars",
+          "removeUnusedPrototypeProperties",
+          "removeUnusedClassProperties",
+          Compiler.PEEPHOLE_PASS_NAME,
+          "minimizeExitPoints",
+          "removeUnreachableCode");
 
-  static final List<String> CODE_MOTION_PASSES = ImmutableList.of(
-      Compiler.CROSS_MODULE_CODE_MOTION_NAME, Compiler.CROSS_MODULE_METHOD_MOTION_NAME);
+  static final ImmutableList<String> CODE_REMOVING_PASSES = ImmutableList.of(
+      Compiler.PEEPHOLE_PASS_NAME, Compiler.UNREACHABLE_CODE_ELIM_NAME);
 
   static final int MAX_LOOPS = 100;
   static final String OPTIMIZE_LOOP_ERROR =
@@ -116,8 +123,7 @@ class PhaseOptimizer implements CompilerPass {
    * @param range the progress range for the process function or null
    *        if progress should not be reported.
    */
-  PhaseOptimizer(
-      AbstractCompiler comp, PerformanceTracker tracker, ProgressRange range) {
+  PhaseOptimizer(AbstractCompiler comp, PerformanceTracker tracker, ProgressRange range) {
     this.compiler = comp;
     this.jsRoot = comp.getJsRoot();
     this.tracker = tracker;
@@ -126,6 +132,8 @@ class PhaseOptimizer implements CompilerPass {
     this.inLoop = false;
     this.crossScopeReporting = false;
     this.timestamp = this.lastChange = START_TIME;
+    this.useSizeHeuristicToStopOptimizationLoop =
+        comp.getOptions().useSizeHeuristicToStopOptimizationLoop;
   }
 
   /**
@@ -250,9 +258,9 @@ class PhaseOptimizer implements CompilerPass {
       // The cross-module passes are loopable and ran together, but do not
       // participate in the other optimization loops, and are not relevant to
       // tracking changed scopes.
-      if (inLoop &&
-          !currentPass.name.equals(Compiler.CROSS_MODULE_CODE_MOTION_NAME) &&
-          !currentPass.name.equals(Compiler.CROSS_MODULE_METHOD_MOTION_NAME)) {
+      if (inLoop
+          && !currentPass.name.equals(Compiler.CROSS_MODULE_CODE_MOTION_NAME)
+          && !currentPass.name.equals(Compiler.CROSS_MODULE_METHOD_MOTION_NAME)) {
         NodeUtil.verifyScopeChanges(mtoc, jsRoot, true);
       }
     }
@@ -420,6 +428,8 @@ class PhaseOptimizer implements CompilerPass {
     private final List<NamedPass> myPasses = new ArrayList<>();
     private final Set<String> myNames = new HashSet<>();
     private ScopedChangeHandler scopeHandler;
+    private boolean isCodeRemovalLoop = false;
+    private int howmanyIterationsUnderThreshold = 0;
 
     void addLoopedPass(PassFactory factory) {
       String name = factory.getName();
@@ -434,7 +444,7 @@ class PhaseOptimizer implements CompilerPass {
       Preconditions.checkState(!inLoop, "Nested loops are forbidden");
       inLoop = true;
       optimizePasses();
-      boolean isCodeMotionLoop = isCodeMotionLoop();
+      this.isCodeRemovalLoop = isCodeRemovalLoop();
 
       // Set up function-change tracking
       scopeHandler = new ScopedChangeHandler();
@@ -495,28 +505,17 @@ class PhaseOptimizer implements CompilerPass {
             }
           }
 
+          previousAstSize = astSize;
+          astSize = NodeUtil.countAstSize(root);
           if (state == State.RUN_PASSES_NOT_RUN_IN_PREV_ITER) {
-            if (lastIterMadeChanges) {
+            if (lastIterMadeChanges && isAstSufficientlyChanging(previousAstSize, astSize)) {
               state = State.RUN_PASSES_THAT_CHANGED_STH_IN_PREV_ITER;
             } else {
               return;
             }
-          } else { // state == State.RUN_PASSES_THAT_CHANGED_STH_IN_PREV_ITER
-            if (!lastIterMadeChanges) {
-              previousAstSize = astSize;
-              astSize = NodeUtil.countAstSize(root);
-              float percentChange = Math.abs(astSize - previousAstSize) / (float) previousAstSize;
-              // If this loop batch made the code less than 0.1% smaller than the previous loop
-              // batch, stop before the fixpoint.
-              // Use this criterion only for loops that remove code; the code-motion loop may
-              // move code around but not remove code, so this criterion is not correct for
-              // stopping early.
-              // This threshold is based on the following heuristic: 1% size difference matters
-              // to our users. 0.1% size difference is borderline relevant. 0.1% difference
-              // between loop batches is smaller than 0.1% total difference, so it's unimportant.
-              if (!isCodeMotionLoop && percentChange < 0.001) {
-                return;
-              }
+          } else {
+            Preconditions.checkState(state == State.RUN_PASSES_THAT_CHANGED_STH_IN_PREV_ITER);
+            if (!lastIterMadeChanges || !isAstSufficientlyChanging(previousAstSize, astSize)) {
               state = State.RUN_PASSES_NOT_RUN_IN_PREV_ITER;
             }
           }
@@ -525,6 +524,37 @@ class PhaseOptimizer implements CompilerPass {
         inLoop = false;
         compiler.removeChangeHandler(scopeHandler);
       }
+    }
+
+    /**
+     * If two loop batches in a row made the code less than 0.05% smaller than the previous
+     * batches, stop before the fixpoint.
+     * The 0.05% threshold is based on the following heuristic: 1% size difference matters
+     * to our users. 0.1% size difference is borderline relevant. 0.05% difference
+     * between loop batches is unlikely to grow the final output more than 0.1%.
+     *
+     * Use this criterion only for the two code-removing loops.
+     * The code-motion loop may move code around but not remove code, so this criterion
+     * is not correct for stopping early.
+     *
+     * NOTE: the size heuristic is not robust when passes in the code-removing loop increase
+     * the AST size; all passes in the loop must make the code smaller. Otherwise, what may seem
+     * like a small size difference may indeed be big changes, and we miss it because we don't
+     * compute the AST size after each pass. This can happen because inlineFunctions may increase
+     * code size, and relies on peephole and inlineVariables to clean up. As long as these passes
+     * run after it in the loop, we should be OK.
+     */
+    private boolean isAstSufficientlyChanging(int oldAstSize, int newAstSize) {
+      if (useSizeHeuristicToStopOptimizationLoop && this.isCodeRemovalLoop) {
+        float percentChange = 100 * (Math.abs(newAstSize - oldAstSize) / (float) oldAstSize);
+        if (percentChange < 0.05) {
+          this.howmanyIterationsUnderThreshold++;
+        } else {
+          this.howmanyIterationsUnderThreshold = 0;
+        }
+        return this.howmanyIterationsUnderThreshold < 2;
+      }
+      return true;
     }
 
     /** Re-arrange the passes in an optimal order. */
@@ -549,9 +579,9 @@ class PhaseOptimizer implements CompilerPass {
       myPasses.addAll(optimalPasses);
     }
 
-    private boolean isCodeMotionLoop() {
+    private boolean isCodeRemovalLoop() {
       for (NamedPass pass : this.myPasses) {
-        if (CODE_MOTION_PASSES.contains(pass.name)) {
+        if (CODE_REMOVING_PASSES.contains(pass.name)) {
           return true;
         }
       }

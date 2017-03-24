@@ -70,8 +70,10 @@ final class ObjectType implements TypeWithProperties {
           || name.equals("Function") || name.equals("Window"),
           "Can't create namespace with nominal type %s", name);
     }
-    Preconditions.checkArgument(!nominalType.isClassy() || !isLoose,
-        "Cannot create loose objectType with nominal type %s", nominalType);
+    if (isLoose) {
+      Preconditions.checkArgument(nominalType.isBuiltinObject() || nominalType.isFunction(),
+          "Cannot create loose objectType with nominal type %s", nominalType);
+    }
     Preconditions.checkArgument(fn == null || nominalType.isFunction(),
         "Cannot create objectType of nominal type %s with function (%s)",
         nominalType, fn);
@@ -177,7 +179,7 @@ final class ObjectType implements TypeWithProperties {
   }
 
   boolean isInterfaceInstance() {
-    return this.nominalType != null && this.nominalType.isInterface();
+    return this.nominalType.isInterface();
   }
 
   boolean isNamespace() {
@@ -269,7 +271,7 @@ final class ObjectType implements TypeWithProperties {
     }
     if (isLoose()
         // Don't loosen nominal types
-        || this.nominalType != null && this.nominalType.isClassy()
+        || (!this.nominalType.isBuiltinObject() && !this.nominalType.isFunction())
         // Don't loosen namespaces
         || this.ns != null) {
       return this;
@@ -552,8 +554,7 @@ final class ObjectType implements TypeWithProperties {
 
   static boolean isUnionSubtype(boolean keepLoosenessOfThis,
       Set<ObjectType> objs1, Set<ObjectType> objs2, SubtypeCache subSuperMap) {
-    return isUnionSubtypeHelper(
-        keepLoosenessOfThis, objs1, objs2, subSuperMap, null);
+    return isUnionSubtypeHelper(keepLoosenessOfThis, objs1, objs2, subSuperMap, null);
   }
 
   static void whyNotUnionSubtypes(boolean keepLoosenessOfThis,
@@ -591,12 +592,10 @@ final class ObjectType implements TypeWithProperties {
     return isSubtypeOfHelper(true, obj2, subSuperMap, null);
   }
 
-  static void whyNotSubtypeOf(
-      ObjectType obj1, ObjectType obj2, MismatchInfo[] boxedInfo) {
+  static void whyNotSubtypeOf(ObjectType obj1, ObjectType obj2, MismatchInfo[] boxedInfo) {
     Preconditions.checkArgument(boxedInfo.length == 1);
-    boolean areSubtypes =
-        obj1.isSubtypeOfHelper(true, obj2, SubtypeCache.create(), boxedInfo);
-    Preconditions.checkState(!areSubtypes);
+    boolean areSubtypes = obj1.isSubtypeOfHelper(true, obj2, SubtypeCache.create(), boxedInfo);
+    Preconditions.checkState(!areSubtypes, "Type %s shouldn't be a subtype of %s", obj1, obj2);
   }
 
   /**
@@ -822,15 +821,21 @@ final class ObjectType implements TypeWithProperties {
   }
 
   ObjectType specialize(ObjectType other) {
-    Preconditions.checkState(
-        areRelatedNominalTypes(this.nominalType, other.nominalType));
+    Preconditions.checkState(areRelatedNominalTypes(this.nominalType, other.nominalType));
     if (isTopObject() && other.objectKind.isUnrestricted()) {
       return other;
     }
     if (this.ns != null) {
       return specializeNamespace(other);
     }
-    NominalType resultNomType = NominalType.pickSubclass(this.nominalType, other.nominalType);
+    NominalType resultNomType;
+    // Don't turn an inline-record type to a @record, because doing this hides implicit type flows
+    // needed for property disambiguation. In all other cases, use the result of pickSubclass.
+    if (this.nominalType.isBuiltinObject() && other.nominalType.isStructuralInterface()) {
+      resultNomType = this.nominalType;
+    } else {
+      resultNomType = NominalType.pickSubclass(this.nominalType, other.nominalType);
+    }
     if (resultNomType.isClassy()) {
       Preconditions.checkState(this.fn == null && other.fn == null);
       PersistentMap<String, Property> newProps =
@@ -846,6 +851,9 @@ final class ObjectType implements TypeWithProperties {
     if (resultNomType.isFunction() && this.fn == null) {
       thisFn = other.fn;
       isLoose = other.fn.isLoose();
+    }
+    if (isLoose && resultNomType.isLiteralObject()) {
+      resultNomType = this.commonTypes.getObjectType();
     }
     PersistentMap<String, Property> newProps =
         meetPropsHelper(this.commonTypes, true, resultNomType, this.props, other.props);
@@ -952,7 +960,7 @@ final class ObjectType implements TypeWithProperties {
     if (!FunctionType.isInhabitable(fn)) {
       return commonTypes.getBottomObject();
     }
-    boolean isLoose = obj1.isLoose && obj2.isLoose || fn != null && fn.isLoose();
+    boolean isLoose = (obj1.isLoose && obj2.isLoose) || fn != null && fn.isLoose();
     if (resultNomType.isFunction() && fn == null) {
       fn = obj1.fn == null ? obj2.fn : obj1.fn;
       isLoose = fn.isLoose();
@@ -1144,13 +1152,7 @@ final class ObjectType implements TypeWithProperties {
         return p;
       }
     }
-    if (this.nominalType != null) {
-      return this.nominalType.getProp(pname);
-    }
-    if (this.commonTypes.getObjectType() != null) {
-      return this.commonTypes.getObjectType().getProp(pname);
-    }
-    return null;
+    return this.nominalType.getProp(pname);
   }
 
   // NOTE(aravindpg): This method deliberately does not return the more specialized version of
@@ -1209,9 +1211,18 @@ final class ObjectType implements TypeWithProperties {
     return p != null;
   }
 
-  boolean hasOwnPropery(QualifiedName qname) {
+  boolean hasOwnProperty(QualifiedName qname) {
     Preconditions.checkArgument(qname.isIdentifier());
-    return getLeftmostOwnProp(qname) != null;
+    Property p = getLeftmostOwnProp(qname);
+    String pname = qname.getLeftmostName();
+    // Try getters and setters specially.
+    if (p == null) {
+      p = getLeftmostOwnProp(new QualifiedName(JSType.createGetterPropName(pname)));
+    }
+    if (p == null) {
+      p = getLeftmostProp(new QualifiedName(JSType.createSetterPropName(pname)));
+    }
+    return p != null;
   }
 
   @Override
@@ -1377,14 +1388,13 @@ final class ObjectType implements TypeWithProperties {
 
   StringBuilder appendTo(StringBuilder builder) {
     if (isPrototypeObject()) {
-      return builder.append(getOwnerFunction().getInstanceTypeOfCtor()).append(".prototype");
+      return builder.append(getOwnerFunction().getThisType()).append(".prototype");
     }
     if (!hasNonPrototypeProperties()) {
       if (fn != null) {
         return fn.appendTo(builder);
-      } else if (this.nominalType != null) {
-        return this.nominalType.appendTo(builder);
       }
+      return this.nominalType.appendTo(builder);
     }
     if (!nominalType.getName().equals("Function")
         && !nominalType.getName().equals("Object")

@@ -2517,6 +2517,27 @@ public final class ParserTest extends BaseJSTypeTestCase {
     parseError("var abc\\t", "Invalid escape sequence");
   }
 
+  public void testUnnecessaryEscape() {
+    parseWarning("var str = '\\a'", "Unnecessary escape: '\\a' is equivalent to just 'a'");
+    parse("var str = '\\b'");
+    parseWarning("var str = '\\c'", "Unnecessary escape: '\\c' is equivalent to just 'c'");
+    parseWarning("var str = '\\d'", "Unnecessary escape: '\\d' is equivalent to just 'd'");
+    parseWarning("var str = '\\e'", "Unnecessary escape: '\\e' is equivalent to just 'e'");
+    parse("var str = '\\f'");
+    parse("var str = '\\/'");
+    parse("var str = '\\0'");
+    parseWarning("var str = '\\1'", "Unnecessary escape: '\\1' is equivalent to just '1'");
+    parseWarning("var str = '\\2'", "Unnecessary escape: '\\2' is equivalent to just '2'");
+    parseWarning("var str = '\\3'", "Unnecessary escape: '\\3' is equivalent to just '3'");
+    parseWarning("var str = '\\%'", "Unnecessary escape: '\\%' is equivalent to just '%'");
+
+    parse("var str = '\\$'");  // TODO(tbreisacher): We should warn for this case.
+
+    mode = LanguageMode.ECMASCRIPT6;
+    expectFeatures(Feature.TEMPLATE_LITERALS);
+    parse("var str = `\\$`");
+  }
+
   public void testEOFInUnicodeEscape() {
     parseError("var \\u1", "Invalid escape sequence");
     parseError("var \\u12", "Invalid escape sequence");
@@ -2993,6 +3014,18 @@ public final class ParserTest extends BaseJSTypeTestCase {
             requiresLanguageModeMessage(LanguageMode.ECMASCRIPT8, Feature.ASYNC_FUNCTIONS));
       }
     }
+  }
+
+  public void testAsyncNamedFunction() {
+    mode = LanguageMode.ECMASCRIPT6;
+    expectFeatures(Feature.CLASSES, Feature.CONST_DECLARATIONS);
+    parse(LINE_JOINER.join(
+        "class C {",
+        "  async(x) { return x; }",
+        "}",
+        "const c = new C();",
+        "c.async(1);",
+        "let foo = async(5);"));
   }
 
   public void testInvalidAsyncFunction() {
