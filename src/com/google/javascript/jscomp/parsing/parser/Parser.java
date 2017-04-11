@@ -2916,7 +2916,7 @@ public class Parser {
       case ARGUMENT_LIST:
       case PAREN_EXPRESSION:
         // e.g. (x) => x + 1
-        resetScanner(leftOfArrow);
+        resetScanner(leftOfArrow.getStart());
         // If we fail to parse as an ArrowFunction parameter list then
         // parseFormalParameterList will take care of reporting errors.
         arrowParameterList = parseFormalParameterList(ParamContext.IMPLEMENTATION);
@@ -3003,7 +3003,7 @@ public class Parser {
     switch (tree.type) {
       case ARRAY_LITERAL_EXPRESSION:
       case OBJECT_LITERAL_EXPRESSION:
-        resetScanner(tree);
+        resetScanner(tree.getStart());
         // If we fail to parse as an LeftHandSidePattern then
         // parseLeftHandSidePattern will take care reporting errors.
         return parseLeftHandSidePattern();
@@ -3019,13 +3019,6 @@ public class Parser {
   private void resetScanner(SourcePosition pos) {
     lastSourcePosition = pos;
     scanner.setOffset(lastSourcePosition.offset);
-  }
-
-  private void resetScanner(ParseTree tree) {
-    // TODO(bradfordcsmith): lastSourcePosition should really point to the end of the last token
-    //     before the tree to correctly detect implicit semicolons, but it doesn't matter for the
-    //     current use case.
-    resetScanner(tree.location.start);
   }
 
   private void resetScannerAfter(ParseTree parseTree) {
