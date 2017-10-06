@@ -1934,7 +1934,8 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
     }
     for (ModuleIdentifier moduleIdentifier : options.getDependencyOptions().getEntryPoints()) {
-      CompilerInput input = inputsByIdentifier.get(moduleIdentifier.toString());
+      ModuleLoader.ModulePath modPath = this.moduleLoader.resolve(moduleIdentifier.getName());
+      CompilerInput input = inputsByIdentifier.get(ModuleIdentifier.forFile(modPath.toString()).toString());
       if (input != null) {
         entryPoints.add(input);
       }
