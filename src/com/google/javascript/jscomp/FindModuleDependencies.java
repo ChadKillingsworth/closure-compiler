@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.google.javascript.jscomp.Es6RewriteModules.FindGoogProvideOrGoogModule;
 import com.google.javascript.jscomp.deps.ModuleLoader;
 import com.google.javascript.jscomp.CompilerInput.ModuleType;
+import com.google.javascript.rhino.IR;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 
@@ -84,7 +85,17 @@ public class FindModuleDependencies implements NodeTraversal.Callback {
   public void visit(NodeTraversal t, Node n, Node parent) {
     if (supportsEs6Modules && n.isExport()) {
       moduleType = ModuleType.ES6;
-
+      if (n.getBooleanProp(Node.EXPORT_DEFAULT)) {
+        // export default
+      } else if (n.getBooleanProp(Node.EXPORT_ALL_FROM)) {
+        // export * from 'moduleIdentifier';
+        // not yet supported by closure ES6 transpilation: 'Wildcard export' is not yet implemented.
+      } else if (n.hasTwoChildren()) {
+        // export {x, y as z} from 'moduleIdentifier';
+        Node moduleIdentifier = n.getLastChild();
+        Node importNode = IR.importNode(IR.empty(), IR.empty(), moduleIdentifier.cloneNode());
+        visit(t, importNode, parent);
+      }
     } else if (supportsEs6Modules && n.isImport()) {
       moduleType = ModuleType.ES6;
       String moduleName;
