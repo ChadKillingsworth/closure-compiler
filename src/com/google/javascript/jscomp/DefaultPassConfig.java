@@ -383,6 +383,12 @@ public final class DefaultPassConfig extends PassConfig {
 
     checks.add(createEmptyPass(PassNames.BEFORE_TYPE_CHECKING));
 
+    if (options.polymerVersion != null
+        && options.polymerVersion > 1
+        && options.propertyRenaming != PropertyRenamingPolicy.OFF) {
+      checks.add(polymerProtectStaticProperties);
+    }
+
     addTypeCheckerPasses(checks, options);
 
     if (options.j2clPassMode.shouldAddJ2clPasses()) {
@@ -3231,6 +3237,20 @@ public final class DefaultPassConfig extends PassConfig {
         @Override
         protected FeatureSet featureSet() {
           return ES_NEXT;
+        }
+      };
+
+  /** Prevents renaming of static properties on Polymer Element classes */
+  private final PassFactory polymerProtectStaticProperties =
+      new PassFactory("polymerProtectStaticProperties", true) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new PolymerProtectStaticProperties(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8_MODULES;
         }
       };
 
