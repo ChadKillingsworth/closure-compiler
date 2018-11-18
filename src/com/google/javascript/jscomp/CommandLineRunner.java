@@ -1164,8 +1164,7 @@ public class CommandLineRunner extends
         if (source.getValue().endsWith(".zip")) {
           mixedSources.add(source);
         } else if (source.getValue().startsWith("!")) {
-          for (String filename : findJsFiles(
-              Collections.singletonList(source.getValue().substring(1)))) {
+          for (String filename : findJsFiles(ImmutableList.of(source.getValue().substring(1)))) {
             excludes.add(filename);
             mixedSources.remove(new FlagEntry<>(JsSourceType.JS, filename));
           }
@@ -1340,8 +1339,16 @@ public class CommandLineRunner extends
       }
 
       @Override public void addValue(String value) throws CmdLineException {
-        proxy.addValue(value);
-        entries.add(new FlagEntry<>(flag, value));
+        // On windows, some quoted values seem to preserve the quotes as part of the value.
+        String normalizedValue = value;
+        if (value != null
+            && value.length() > 0
+            && (value.substring(0, 1).equals("'") || value.substring(0, 1).equals("\""))
+            && value.substring(value.length() - 1).equals(value.substring(0, 1))) {
+          normalizedValue = value.substring(1, value.length() - 1);
+        }
+        proxy.addValue(normalizedValue);
+        entries.add(new FlagEntry<>(flag, normalizedValue));
       }
 
       @Override public FieldSetter asFieldSetter() {
@@ -1617,82 +1624,83 @@ public class CommandLineRunner extends
       }
     }
 
+    CodingConvention conv;
+    if (flags.thirdParty) {
+      conv = CodingConventions.getDefault();
+    } else if (flags.chromePass) {
+      conv = new ChromeCodingConvention();
+    } else {
+      conv = new ClosureCodingConvention();
+    }
+
+    // For backwards compatibility, allow both commonJsPathPrefix and jsModuleRoot.
+    List<String> moduleRoots = new ArrayList<>();
+    if (!flags.moduleRoot.isEmpty()) {
+      moduleRoots.addAll(flags.moduleRoot);
+
+      if (!flags.commonJsPathPrefix.isEmpty()) {
+        reportError("--commonJsPathPrefix cannot be used with --js_module_root.");
+      }
+    } else if (flags.commonJsPathPrefix != null) {
+      moduleRoots.addAll(flags.commonJsPathPrefix);
+    } else {
+      moduleRoots.add(ModuleLoader.DEFAULT_FILENAME_PREFIX);
+    }
+
+    entryPoints.addAll(
+        AbstractCommandLineRunner.CommandLineConfig.moduleIdentifiersForEntryPoints(
+            flags.entryPoints));
+
+    if (flags.dependencyMode == CompilerOptions.DependencyMode.STRICT && entryPoints.isEmpty()) {
+      reportError("When --dependency_mode=STRICT, you must specify at least one --entry_point.");
+    }
+
+    CompilerOptions.DependencyMode depMode = flags.dependencyMode;
+
+    if (flags.onlyClosureDependencies || flags.manageClosureDependencies) {
+      if (flags.dependencyMode != CompilerOptions.DependencyMode.NONE) {
+        reportError(
+            (flags.onlyClosureDependencies
+                    ? "--only_closure_dependencies"
+                    : "--manage_closure_dependencies")
+                + " cannot be used with --dependency_mode.");
+      } else {
+        if (flags.manageClosureDependencies) {
+          depMode = CompilerOptions.DependencyMode.LOOSE;
+        } else if (flags.onlyClosureDependencies) {
+          depMode = CompilerOptions.DependencyMode.STRICT;
+        }
+
+        if (!flags.closureEntryPoint.isEmpty() && !flags.entryPoints.isEmpty()) {
+          reportError("--closure_entry_point cannot be used with --entry_point.");
+        } else {
+          for (String entryPoint : flags.closureEntryPoint) {
+            entryPoints.add(ModuleIdentifier.forClosure(entryPoint));
+          }
+        }
+      }
+    }
+
+    if (!flags.renaming
+        && flags.compilationLevelParsed == CompilationLevel.ADVANCED_OPTIMIZATIONS) {
+      reportError("ERROR - renaming cannot be disabled when ADVANCED_OPTIMIZATIONS is used.");
+    }
+
     if (errors) {
       Flags.printShortUsageAfterErrors(errorStream);
     } else if (flags.displayHelp || flags.helpMarkdown) {
       flags.printUsage(out);
     } else if (flags.version) {
       out.println(
-          "Closure Compiler (http://github.com/google/closure-compiler)\n" +
-          "Version: " + Compiler.getReleaseVersion() + "\n" +
-          "Built on: " + Compiler.getReleaseDate());
+          "Closure Compiler (http://github.com/google/closure-compiler)\n"
+              + "Version: "
+              + Compiler.getReleaseVersion()
+              + "\n"
+              + "Built on: "
+              + Compiler.getReleaseDate());
       out.flush();
     } else {
       runCompiler = true;
-
-      CodingConvention conv;
-      if (flags.thirdParty) {
-        conv = CodingConventions.getDefault();
-      } else if (flags.chromePass) {
-        conv = new ChromeCodingConvention();
-      } else {
-        conv = new ClosureCodingConvention();
-      }
-
-      // For backwards compatibility, allow both commonJsPathPrefix and jsModuleRoot.
-      List<String> moduleRoots = new ArrayList<>();
-      if (!flags.moduleRoot.isEmpty()) {
-        moduleRoots.addAll(flags.moduleRoot);
-
-        if (!flags.commonJsPathPrefix.isEmpty()) {
-          reportError("--commonJsPathPrefix cannot be used with --js_module_root.");
-        }
-      } else if (flags.commonJsPathPrefix != null) {
-        moduleRoots.addAll(flags.commonJsPathPrefix);
-      } else {
-        moduleRoots.add(ModuleLoader.DEFAULT_FILENAME_PREFIX);
-      }
-
-      entryPoints.addAll(
-          AbstractCommandLineRunner.CommandLineConfig.moduleIdentifiersForEntryPoints(
-              flags.entryPoints));
-
-      if (flags.dependencyMode == CompilerOptions.DependencyMode.STRICT && entryPoints.isEmpty()) {
-        reportError(
-            "When --dependency_mode=STRICT, you must specify at least " + "one --entry_point.");
-      }
-
-      CompilerOptions.DependencyMode depMode = flags.dependencyMode;
-
-      if (flags.onlyClosureDependencies || flags.manageClosureDependencies) {
-        if (flags.dependencyMode != CompilerOptions.DependencyMode.NONE) {
-          reportError(
-              (flags.onlyClosureDependencies
-                      ? "--only_closure_dependencies"
-                      : "--manage_closure_dependencies")
-                  + " cannot be used with --dependency_mode.");
-        } else {
-          if (flags.manageClosureDependencies) {
-            depMode = CompilerOptions.DependencyMode.LOOSE;
-          } else if (flags.onlyClosureDependencies) {
-            depMode = CompilerOptions.DependencyMode.STRICT;
-          }
-
-          if (!flags.closureEntryPoint.isEmpty() && !flags.entryPoints.isEmpty()) {
-            reportError("--closure_entry_point cannot be used with --entry_point.");
-          } else {
-            for (String entryPoint : flags.closureEntryPoint) {
-              entryPoints.add(ModuleIdentifier.forClosure(entryPoint));
-            }
-          }
-        }
-      }
-
-      if (!flags.renaming
-          && flags.compilationLevelParsed == CompilationLevel.ADVANCED_OPTIMIZATIONS) {
-        reportError("ERROR - renaming cannot be disabled when ADVANCED_OPTIMIZATIONS is used.");
-        runCompiler = false;
-      }
 
       getCommandLineConfig()
           .setPrintTree(flags.printTree)
@@ -1739,6 +1747,7 @@ public class CommandLineRunner extends
           .setJsonStreamMode(flags.jsonStreamMode)
           .setErrorFormat(flags.errorFormat);
     }
+
     errorStream = null;
   }
 

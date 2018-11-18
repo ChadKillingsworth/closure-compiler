@@ -22,16 +22,22 @@ import static com.google.javascript.rhino.testing.NodeSubject.assertNode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.javascript.jscomp.CrossModuleReferenceCollector.TopLevelStatement;
+import com.google.javascript.jscomp.CrossChunkReferenceCollector.TopLevelStatement;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
 import java.util.List;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
-public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
-  private CrossModuleReferenceCollector testedCollector;
+@RunWith(JUnit4.class)
+public final class CrossChunkReferenceCollectorTest extends CompilerTestCase {
+  private CrossChunkReferenceCollector testedCollector;
 
   @Override
-  protected void setUp() throws Exception {
+  @Before
+  public void setUp() throws Exception {
     super.setUp();
     enableNormalize();
     setLanguage(ECMASCRIPT_NEXT, ECMASCRIPT_NEXT);
@@ -41,7 +47,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
   protected int getNumRepetitions() {
     // Default behavior for CompilerTestCase.test*() methods is to do the whole test twice,
     // because passes that modify the AST need to be idempotent.
-    // Since CrossModuleReferenceCollector() just gathers information, it doesn't make sense to
+    // Since CrossChunkReferenceCollector() just gathers information, it doesn't make sense to
     // run it twice, and doing so just complicates debugging test cases.
     return 1;
   }
@@ -49,12 +55,11 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
   @Override
   protected CompilerPass getProcessor(final Compiler compiler) {
     ScopeCreator scopeCreator = new Es6SyntacticScopeCreator(compiler);
-    testedCollector = new CrossModuleReferenceCollector(
-        compiler,
-        scopeCreator);
+    testedCollector = new CrossChunkReferenceCollector(compiler, scopeCreator);
     return testedCollector;
   }
 
+  @Test
   public void testVarInBlock() {
     testSame(lines(
             "  if (true) {",
@@ -70,6 +75,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(yRefs.isWellDefined()).isTrue();
   }
 
+  @Test
   public void testVarInLoopNotAssignedOnlyOnceInLifetime() {
     testSame("var x; while (true) { x = 0; }");
     ImmutableMap<String, Var> globalVariableNamesMap = testedCollector.getGlobalVariableNamesMap();
@@ -90,6 +96,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
    * Although there is only one assignment to x in the code, it's in a function which could be
    * called multiple times, so {@code isAssignedOnceInLifetime()} returns false.
    */
+  @Test
   public void testVarInFunctionNotAssignedOnlyOnceInLifetime() {
     testSame("var x; function f() { x = 0; }");
     ImmutableMap<String, Var> globalVariableNamesMap = testedCollector.getGlobalVariableNamesMap();
@@ -106,6 +113,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(xRefs.isAssignedOnceInLifetime()).isFalse();
   }
 
+  @Test
   public void testVarAssignedOnceInLifetime1() {
     testSame("var x = 0;");
     ImmutableMap<String, Var> globalVariableNamesMap = testedCollector.getGlobalVariableNamesMap();
@@ -122,6 +130,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(xRefs.isAssignedOnceInLifetime()).isTrue();
   }
 
+  @Test
   public void testVarAssignedOnceInLifetime2() {
     testSame("{ var x = 0; }");
     ImmutableMap<String, Var> globalVariableNamesMap = testedCollector.getGlobalVariableNamesMap();
@@ -131,6 +140,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(xRefs.isAssignedOnceInLifetime()).isTrue();
   }
 
+  @Test
   public void testBasicBlocks() {
     testSame(lines(
             "var x = 0;",
@@ -148,6 +158,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertNode(xRefs.references.get(2).getBasicBlock().getRoot()).hasType(Token.CASE);
   }
 
+  @Test
   public void testTopLevelStatements() {
     testSame(lines(
         "var x = 1;",
@@ -194,6 +205,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
         .containsExactly(zReferences.get(1));
   }
 
+  @Test
   public void testVarDeclarationStatement() {
     testSame("var x = 1;");
 
@@ -210,6 +222,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(valueNode.getDouble()).isEqualTo(1.0);
   }
 
+  @Test
   public void testFunctionDeclarationStatement() {
     testSame("function x() {}");
 
@@ -224,6 +237,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(functionDeclaration.getNonDeclarationReferences()).isEmpty();
   }
 
+  @Test
   public void testVariableAssignmentStatement() {
     testSame("var x; x = 1;");
 
@@ -241,6 +255,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(valueNode.getDouble()).isEqualTo(1.0);
   }
 
+  @Test
   public void testPropertyAssignmentStatement() {
     testSame("var x = {}; x.prop = 1;");
 
@@ -258,6 +273,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(valueNode.getDouble()).isEqualTo(1.0);
   }
 
+  @Test
   public void testGoogInheritsIsMovableDeclaration() {
     testSame("function A() {} function B() {} goog.inherits(B, A);");
 
@@ -277,6 +293,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(inheritsStatement.isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testDefinePropertiesIsMovableDeclaration() {
     testSame("function A() {} Object.defineProperties(A, {});");
 
@@ -291,6 +308,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(definePropertiesStatement.isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testDefinePropertiesWithPrototypeIsMovableDeclaration() {
     testSame("function A() {} Object.defineProperties(A.prototype, {});");
 
@@ -305,6 +323,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(definePropertiesStatement.isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testFunctionDeclarationOrAssignmentIsMovable() {
     testSame("function f() {}");
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isTrue();
@@ -312,11 +331,13 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testLiteralValueIsMovable() {
     testSame("var f = 1;");
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testFunctionCallsAreNotMovableExceptForMethodStubs() {
     testSame(lines(
         "function Foo() {}",
@@ -329,44 +350,53 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(statements.get(3).isMovableDeclaration()).isFalse();
   }
 
+  @Test
   public void testUnknownNameValueIsImmovable() {
     assertStatementIsImmovable("var a = unknownName;");
   }
 
+  @Test
   public void testWellDefinedNameValueIsMovable() {
     testSame("var wellDefined = 1; var other = wellDefined;");
     assertThat(testedCollector.getTopLevelStatements().get(1).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testUninitializedNameValueIsNotMovable() {
     testSame("var value; var other = value;");
     assertThat(testedCollector.getTopLevelStatements().get(1).isMovableDeclaration()).isFalse();
   }
 
+  @Test
   public void testReDefinedNameValueIsNotMovable() {
     testSame("var redefined = 1; redefined = 2; var other = redefined;");
     assertThat(testedCollector.getTopLevelStatements().get(2).isMovableDeclaration()).isFalse();
   }
 
+  @Test
   public void testEmptyArrayLiteralIsMovable() {
     testSame("var a = [];");
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testArrayLiteralOfMovablesIsMovable() {
     testSame("var wellDefinedName = 1; var a = [function(){}, 1, wellDefinedName, []];");
     assertThat(testedCollector.getTopLevelStatements().get(1).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testArrayLiteralWithImmovableIsImmovable() {
     assertStatementIsImmovable("var a = [unknownValue];");
   }
 
+  @Test
   public void testEmptyObjectLiteralIsMovable() {
     testSame("var o = {};");
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testObjectLiteralOfMovablesIsMovable() {
     testSame(lines(
         "var wellDefinedName = 1;",
@@ -403,6 +433,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(testedCollector.getTopLevelStatements().get(1).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testObjectLiteralWithImmovableIsImmovable() {
     assertStatementIsImmovable("var o = { v: unknownValue };");
     assertStatementIsImmovable("var o = { [unknownValue]: 1 };");
@@ -416,6 +447,7 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(testedCollector.getTopLevelStatements().get(0).isMovableDeclaration()).isFalse();
   }
 
+  @Test
   public void testTemplateLiteralIsMovableIfSubstitutionsAreMovable() {
     testSame(lines(
         "var wellDefinedName = 1;",
@@ -423,13 +455,14 @@ public final class CrossModuleReferenceCollectorTest extends CompilerTestCase {
     assertThat(testedCollector.getTopLevelStatements().get(1).isMovableDeclaration()).isTrue();
   }
 
+  @Test
   public void testTemplateLiteralIsImmovableIfSubstitutionsAreImmovable() {
     assertStatementIsImmovable("var t = `${unknownValue}`");
   }
 
-  //  try to find cases to copy from CrossModuleCodeMotion
+  //  try to find cases to copy from CrossChunkCodeMotion
   private ReferenceCollection getReferencesForName(
-      String name, CrossModuleReferenceCollector collector) {
+      String name, CrossChunkReferenceCollector collector) {
     Var v = collector.getGlobalVariableNamesMap().get(name);
     assertThat(v).isNotNull();
     return collector.getReferences(v);

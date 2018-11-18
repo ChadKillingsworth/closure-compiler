@@ -22,13 +22,16 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import junit.framework.TestCase;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
 /**
  * Tests {@link XtbMessageBundle}.
  *
  */
-public final class XtbMessageBundleTest extends TestCase {
+@RunWith(JUnit4.class)
+public final class XtbMessageBundleTest {
   private static final String PROJECT_ID = "TestProject";
 
   private static final String XTB =
@@ -64,23 +67,24 @@ public final class XtbMessageBundleTest extends TestCase {
           + "</translation>"
           + "</translationbundle>";
 
+  @Test
   public void testXtbBundle() {
     InputStream stream = new ByteArrayInputStream(XTB.getBytes(UTF_8));
     XtbMessageBundle bundle = new XtbMessageBundle(
         stream, PROJECT_ID);
 
     JsMessage message = bundle.getMessage("7639678437384034548");
-    assertEquals("descargar", message.toString());
+    assertThat(message.toString()).isEqualTo("descargar");
 
     message = bundle.getMessage("2398375912250604550");
-    assertEquals("Se han\nignorado {$num} conversaciones.",
-        message.toString());
+    assertThat(message.toString()).isEqualTo("Se han\nignorado {$num} conversaciones.");
 
     message = bundle.getMessage("6323937743550839320");
-    assertEquals("{$pStart}Si, puede {$linkStart_1_3}hacer "
-        + "clic{$linkEnd_1_3} para utilizar.{$pEnd}{$pStart}Esperamos "
-        + "poder ampliar.{$pEnd}",
-        message.toString());
+    assertThat(message.toString())
+        .isEqualTo(
+            "{$pStart}Si, puede {$linkStart_1_3}hacer "
+                + "clic{$linkEnd_1_3} para utilizar.{$pEnd}{$pStart}Esperamos "
+                + "poder ampliar.{$pEnd}");
 
     message = bundle.getMessage("3945720239421293834");
     assertThat(message.toString()).isEmpty();
@@ -93,21 +97,21 @@ public final class XtbMessageBundleTest extends TestCase {
    * However, JsMessage and the Closure Library runtime don't expect to see regular placeholders, so
    * they must be rewritten.
    */
+  @Test
   public void testXtbBundle_mixedPlaceholders() throws IOException {
     InputStream stream = new ByteArrayInputStream(XTB_WITH_MIXED_PLACEHOLDERS.getBytes(UTF_8));
     XtbMessageBundle bundle = new XtbMessageBundle(stream, PROJECT_ID);
 
     assertThat(bundle.getAllMessages()).hasSize(2);
-    assertEquals(
-        "{USER_GENDER,select,"
-            + "female{Hello {userIdentifier}.}"
-            + "male{Hello {userIdentifier}.}"
-            + "other{Hello {userIdentifier}.}}",
-        bundle.getMessage("123456").toString());
+    assertThat(bundle.getMessage("123456").toString())
+        .isEqualTo(
+            "{USER_GENDER,select,"
+                + "female{Hello {userIdentifier}.}"
+                + "male{Hello {userIdentifier}.}"
+                + "other{Hello {userIdentifier}.}}");
 
     // Previous ICU message should not to affect next message
-    assertEquals(
-        "{$startParagraph}p1{$endParagraph}{$startParagraph}p1{$endParagraph}",
-        bundle.getMessage("123457").toString());
+    assertThat(bundle.getMessage("123457").toString())
+        .isEqualTo("{$startParagraph}p1{$endParagraph}{$startParagraph}p1{$endParagraph}");
   }
 }

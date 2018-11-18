@@ -411,6 +411,82 @@ public class Node implements Serializable {
     }
   }
 
+  private static final class TemplateLiteralSubstringNode extends Node {
+
+    private static final long serialVersionUID = 1L;
+    // The "cooked" version of the template literal substring. May be null.
+    @Nullable
+    private String cooked;
+    // The raw version of the template literal substring, is not null
+    private String raw;
+
+    // Only for cloneNode
+    private TemplateLiteralSubstringNode() {
+      super(Token.TEMPLATELIT_STRING);
+    }
+
+    TemplateLiteralSubstringNode(@Nullable String cooked, String raw) {
+      super(Token.TEMPLATELIT_STRING);
+      this.cooked = cooked;
+      setRaw(raw);
+    }
+
+    TemplateLiteralSubstringNode(@Nullable String cooked, String raw,
+        int lineno, int charno) {
+      super(Token.TEMPLATELIT_STRING, lineno, charno);
+      this.cooked = cooked;
+      setRaw(raw);
+    }
+
+    /**
+     * returns the raw string content.
+     * @return non null.
+     */
+    @Override
+    public String getRawString() {
+      return this.raw;
+    }
+
+    /**
+     * @return the cooked string content.
+     */
+    @Override @Nullable
+    public String getCookedString() {
+      return this.cooked;
+    }
+
+    /**
+     * sets the raw string content.
+     * @param str the new value. Non null.
+     */
+    public void setRaw(String str) {
+      if (null == str) {
+        throw new IllegalArgumentException("TemplateLiteralSubstringNode: raw str is null");
+      }
+      // Intern the string reference so that serialization won't save repeated strings.
+      this.raw = str.intern();
+    }
+
+    @Override
+    @SuppressWarnings("ReferenceEquality")
+    public boolean isEquivalentTo(
+        Node node, boolean compareType, boolean recur, boolean jsDoc, boolean sideEffect) {
+      // NOTE: we take advantage of the string interning done in #setRaw and use
+      // '==' rather than 'equals' here to avoid doing unnecessary string equalities.
+      return (super.isEquivalentTo(node, compareType, recur, jsDoc, sideEffect)
+          && this.raw == ((TemplateLiteralSubstringNode) node).raw
+          && Objects.equal(this.cooked, ((TemplateLiteralSubstringNode) node).cooked));
+    }
+
+    @Override
+    public TemplateLiteralSubstringNode cloneNode(boolean cloneTypeExprs) {
+      TemplateLiteralSubstringNode clone = new TemplateLiteralSubstringNode();
+      clone.raw = raw;
+      clone.cooked = cooked;
+      return copyNodeFields(clone, cloneTypeExprs);
+    }
+  }
+
   private abstract static class PropListItem implements Serializable {
     final @Nullable PropListItem next;
     final byte propType;
@@ -613,6 +689,10 @@ public class Node implements Serializable {
 
   public static Node newString(Token token, String str, int lineno, int charno) {
     return new StringNode(token, str, lineno, charno);
+  }
+
+  public static Node newTemplateLitString(String cooked, String raw) {
+    return new TemplateLiteralSubstringNode(cooked, raw);
   }
 
   public final Token getToken() {
@@ -1079,6 +1159,13 @@ public class Node implements Serializable {
   }
 
   /**
+   * Sets the type of this node before casting.
+   */
+  public final void setJSTypeBeforeCast(JSType type) {
+    putProp(TYPE_BEFORE_CAST, type);
+  }
+
+  /**
    * Returns the type of this node before casting. This annotation will only exist on the first
    * child of a CAST node after type checking.
    */
@@ -1149,6 +1236,27 @@ public class Node implements Serializable {
           "String node not created with Node.newString");
     } else {
       throw new UnsupportedOperationException(this + " is not a string node");
+    }
+  }
+
+  /** Can only be called when <tt>getType() == Token.TEMPLATELIT_STRING</tt> */
+  public String getRawString() {
+    if (this.token == Token.TEMPLATELIT_STRING) {
+      throw new IllegalStateException(
+          "Template Literal String node not created with Node.newTemplateLitString");
+    } else {
+      throw new UnsupportedOperationException(this + " is not a template literal string node");
+    }
+  }
+
+  /** Can only be called when <tt>getType() == Token.TEMPLATELIT_STRING</tt> */
+  @Nullable
+  public String getCookedString() {
+    if (this.token == Token.TEMPLATELIT_STRING) {
+      throw new IllegalStateException(
+          "Template Literal String node not created with Node.newTemplateLitString");
+    } else {
+      throw new UnsupportedOperationException(this + " is not a template literal string node");
     }
   }
 
@@ -3257,6 +3365,10 @@ public class Node implements Serializable {
 
   public final boolean isTemplateLit() {
     return this.token == Token.TEMPLATELIT;
+  }
+
+  public final boolean isTemplateLitString() {
+    return this.token == Token.TEMPLATELIT_STRING;
   }
 
   public final boolean isTemplateLitSub() {

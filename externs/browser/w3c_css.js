@@ -2039,6 +2039,11 @@ CSSProperties.prototype.order;
  */
 CSSProperties.prototype.willChange;
 
+/**
+ * @type {string}
+ * @see https://www.w3.org/TR/css-ui-4/#propdef-user-select
+ */
+CSSProperties.prototype.userSelect;
 
 /**
  * TODO(dbeam): Put this in separate file named w3c_cssom.js.
@@ -2303,6 +2308,18 @@ Element.prototype.getBoundingClientRect = function() {};
  * @return {undefined}
  */
 Element.prototype.scrollIntoView = function(opt_top) {};
+
+/**
+ * @param {number|{
+ *   left: (number|undefined),
+ *   top: (number|undefined),
+ *   behavior: (string|undefined),
+ * }} scrollToOptionsOrX
+ * @param {number=} opt_y
+ * @see https://www.w3.org/TR/cssom-view/#extension-to-the-element-interface
+ * @return {undefined}
+ */
+Element.prototype.scrollTo = function(scrollToOptionsOrX, opt_y) {};
 
 /**
  * @type {number}

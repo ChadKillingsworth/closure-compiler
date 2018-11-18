@@ -385,7 +385,7 @@ public class JSTypeRegistry implements Serializable {
     NoObjectType noObjectType = new NoObjectType(this);
     registerNativeType(JSTypeNative.NO_OBJECT_TYPE, noObjectType);
 
-    NoObjectType noResolvedType = new NoResolvedType(this);
+    NoResolvedType noResolvedType = new NoResolvedType(this);
     registerNativeType(JSTypeNative.NO_RESOLVED_TYPE, noResolvedType);
 
     // Array
@@ -1328,7 +1328,7 @@ public class JSTypeRegistry implements Serializable {
       }
     }
 
-    // TODO(sdh): The use of "getType" here is incorrect. This currently will pick up a type\
+    // TODO(sdh): The use of "getType" here is incorrect. This currently will pick up a type
     // in an outer scope if it will be shadowed by a local type.  But creating a unique NamedType
     // object for every name referenced (even if interned) in every scope would be expensive.
     //
@@ -1913,6 +1913,7 @@ public class JSTypeRegistry implements Serializable {
                 firstChild, sourceName, scope, recordUnresolvedTypes));
 
       case EQUALS: // Optional
+        // TODO(b/117162687): stop automatically converting {string=} to {(string|undefined)]}
         return createOptionalType(
             createFromTypeNodesInternal(
                 n.getFirstChild(), sourceName, scope, recordUnresolvedTypes));
@@ -1938,6 +1939,28 @@ public class JSTypeRegistry implements Serializable {
 
       case VOID: // Only allowed in the return value of a function.
         return getNativeType(VOID_TYPE);
+
+      case TYPEOF:
+        {
+          String name = n.getFirstChild().getString();
+          StaticTypedSlot slot = scope.getSlot(name);
+          if (slot == null) {
+            reporter.warning("Not in scope: " + name, sourceName, n.getLineno(), n.getCharno());
+            return getNativeType(UNKNOWN_TYPE);
+          }
+          // TODO(sdh): require var to be const?
+          JSType type = slot.getType();
+          if (type == null) {
+            reporter.warning("No type for: " + name, sourceName, n.getLineno(), n.getCharno());
+            return getNativeType(UNKNOWN_TYPE);
+          }
+          if (type.isLiteralObject()) {
+            type =
+                createNamedType(scope, "typeof " + name, sourceName, n.getLineno(), n.getCharno());
+            ((NamedType) type).setReferencedType(slot.getType());
+          }
+          return type;
+        }
 
       case STRING:
         // TODO(martinprobst): The new type syntax resolution should be separate.
@@ -2085,6 +2108,7 @@ public class JSTypeRegistry implements Serializable {
             .withTypeOfThis(thisType)
             .withKind(isConstructor ? FunctionType.Kind.CONSTRUCTOR : FunctionType.Kind.ORDINARY)
             .build();
+
       default:
         break;
     }

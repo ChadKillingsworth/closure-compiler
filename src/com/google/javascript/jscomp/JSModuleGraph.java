@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.LinkedListMultimap;
@@ -47,6 +48,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * A {@link JSModule} dependency graph that assigns a depth to each module and can answer
@@ -93,6 +95,7 @@ public final class JSModuleGraph implements Serializable {
 
   /** Creates a module graph from a list of modules in dependency order. */
   public JSModuleGraph(List<JSModule> modulesInDepOrder) {
+    Preconditions.checkState(!modulesInDepOrder.isEmpty());
     modules = new JSModule[modulesInDepOrder.size()];
 
     // n = number of modules
@@ -188,15 +191,14 @@ public final class JSModuleGraph implements Serializable {
 
   /** Gets an iterable over all input source files in dependency order. */
   Iterable<CompilerInput> getAllInputs() {
-    return Iterables.concat(
-        Iterables.transform(Arrays.asList(modules), (module) -> module.getInputs()));
+    return Iterables.concat(Iterables.transform(Arrays.asList(modules), JSModule::getInputs));
   }
 
   /** Gets the total number of input source files. */
   int getInputCount() {
     int count = 0;
     for (JSModule module : modules) {
-      count += module.getInputs().size();
+      count += module.getInputCount();
     }
     return count;
   }
@@ -206,6 +208,21 @@ public final class JSModuleGraph implements Serializable {
    */
   Iterable<JSModule> getAllModules() {
     return Arrays.asList(modules);
+  }
+
+  /**
+   * Gets a single module by name.
+   *
+   * @return The module, or null if no such module exists.
+   */
+  @Nullable
+  JSModule getModuleByName(String name) {
+    for (JSModule m : modules) {
+      if (m.getName().equals(name)) {
+        return m;
+      }
+    }
+    return null;
   }
 
   /**

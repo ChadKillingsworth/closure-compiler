@@ -110,7 +110,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           "Property {0} never defined on {1}");
 
   static final DiagnosticType INEXISTENT_PROPERTY_WITH_SUGGESTION =
-      DiagnosticType.disabled(
+      DiagnosticType.warning(
           "JSC_INEXISTENT_PROPERTY_WITH_SUGGESTION",
           "Property {0} never defined on {1}. Did you mean {2}?");
 
@@ -272,9 +272,10 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           + " (If you already declared the property, make sure to give it a type.)");
 
   static final DiagnosticType ILLEGAL_OBJLIT_KEY =
-      DiagnosticType.warning(
-          "JSC_ILLEGAL_OBJLIT_KEY",
-          "Illegal key, the object literal is a {0}");
+      DiagnosticType.warning("JSC_ILLEGAL_OBJLIT_KEY", "Illegal key, the object literal is a {0}");
+
+  static final DiagnosticType ILLEGAL_CLASS_KEY =
+      DiagnosticType.warning("JSC_ILLEGAL_CLASS_KEY", "Illegal key, the class is a {0}");
 
   static final DiagnosticType NON_STRINGIFIABLE_OBJECT_KEY =
       DiagnosticType.warning(
@@ -320,6 +321,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
           INCOMPATIBLE_EXTENDED_PROPERTY_TYPE,
           EXPECTED_THIS_TYPE,
           IN_USED_WITH_STRUCT,
+          ILLEGAL_CLASS_KEY,
           ILLEGAL_PROPERTY_CREATION,
           ILLEGAL_OBJLIT_KEY,
           NON_STRINGIFIABLE_OBJECT_KEY,
@@ -534,7 +536,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         }
         ensureTyped(n, castType);
 
-        expr.putProp(Node.TYPE_BEFORE_CAST, exprType);
+        expr.setJSTypeBeforeCast(exprType);
         if (castType.restrictByNotNullOrUndefined().isSubtypeOf(exprType)
             || expr.isObjectLit()) {
           expr.setJSType(castType);
@@ -642,6 +644,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         break;
 
       case TEMPLATELIT:
+      case TEMPLATELIT_STRING:
         ensureTyped(n, STRING_TYPE);
         break;
 
@@ -769,7 +772,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
         left = n.getFirstChild();
         right = n.getLastChild();
         rightType = getJSType(right);
-        validator.expectString(t, left, getJSType(left), "left side of 'in'");
+        validator.expectStringOrSymbol(t, left, getJSType(left), "left side of 'in'");
         validator.expectObject(t, n, rightType, "'in' requires an object");
         if (rightType.isStruct()) {
           report(t, right, IN_USED_WITH_STRUCT);
@@ -880,8 +883,11 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       case TEMPLATELIT_SUB:
       case REST:
       case DESTRUCTURING_LHS:
-      case ARRAY_PATTERN:
         typeable = false;
+        break;
+
+      case ARRAY_PATTERN:
+        ensureTyped(n);
         break;
 
       case OBJECT_PATTERN:
@@ -905,6 +911,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
                 t, n, getJSType(n), target.getStringKey(), getJSType(target.getNode()));
           }
         }
+        ensureTyped(n);
         break;
 
       case DEFAULT_VALUE:
@@ -1296,18 +1303,16 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
 
   /**
    * Visits an object literal field definition <code>key : value</code>, or a class member
-   * definition <code>key() { ... }</code>
-   *
-   * If the <code>lvalue</code> is a prototype modification, we change the
-   * schema of the object type it is referring to.
+   * definition <code>key() { ... }</code> If the <code>lvalue</code> is a prototype modification,
+   * we change the schema of the object type it is referring to.
    *
    * @param t the traversal
    * @param key the ASSIGN, STRING_KEY, MEMBER_FUNCTION_DEF, or COMPUTED_PROPERTY node
    * @param owner the parent node, either OBJECTLIT or CLASS_MEMBERS
-   * @param litType the instance type of the enclosing object/class
+   * @param ownerType the instance type of the enclosing object/class
    */
   private void visitObjectOrClassLiteralKey(
-      NodeTraversal t, Node key, Node owner, JSType litType) {
+      NodeTraversal t, Node key, Node owner, JSType ownerType) {
     // Semicolons in a CLASS_MEMBERS body will produce EMPTY nodes: skip them.
     if (key.isEmpty()) {
       return;
@@ -1320,25 +1325,29 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
       return;
     }
 
-    // Structs must have unquoted keys and dicts must have quoted keys
-    // (we check computed properties in structs below)
-    if (litType.isStruct() && key.isQuotedString()) {
-      report(t, key, ILLEGAL_OBJLIT_KEY, "struct");
-    } else if (litType.isDict() && !(key.isQuotedString() || key.isComputedProp())) {
-      // Allow the definition of "constructor" as an unquoted key in class bodies.  They will
-      // never be renamed so quoting is unimportant for the ALL_UNQUOTED renaming policy
-      // and the property is not accessed directly.
-      if (!key.isMemberFunctionDef()
-          || !key.getParent().isClassMembers()
-          || !key.getString().equals("constructor")) {
-        report(t, key, ILLEGAL_OBJLIT_KEY, "dict");
-      }
-    }
-
     // Validate computed properties similarly to how we validate GETELEMs.
     if (key.isComputedProp()) {
-      validator.expectIndexMatch(t, key, litType, getJSType(key.getFirstChild()));
+      validator.expectIndexMatch(t, key, ownerType, getJSType(key.getFirstChild()));
       return;
+    }
+
+    if (key.isQuotedString()) {
+      // NB: this case will never be triggered for member functions, since we store quoted
+      // member functions as computed properties. This case does apply to regular string key
+      // properties, getters, and setters.
+      // See also https://github.com/google/closure-compiler/issues/3071
+      if (ownerType.isStruct()) {
+        report(t, key, owner.isClass() ? ILLEGAL_CLASS_KEY : ILLEGAL_OBJLIT_KEY, "struct");
+      }
+    } else {
+      // we have either a non-quoted string or a member function def
+      // Neither is allowed for an @dict type except for "constructor" as a special case.
+      if (ownerType.isDict()
+          && !(key.isMemberFunctionDef() && "constructor".equals(key.getString()))) {
+        // Object literals annotated as @dict may only have
+        // If you annotate a class with @dict, only the constructor can be a non-computed property.
+        report(t, key, owner.isClass() ? ILLEGAL_CLASS_KEY : ILLEGAL_OBJLIT_KEY, "dict");
+      }
     }
 
     // TODO(johnlenz): Validate get and set function declarations are valid
@@ -1396,7 +1405,6 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
             t, key, keyType,
             type.getPropertyType(property), owner, property);
       }
-      return;
     }
   }
 
@@ -1990,7 +1998,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
    */
   private void visitVar(NodeTraversal t, Node n) {
     // Handle var declarations in for-of loops separately from regular var declarations.
-    if (n.getParent().isForOf()) {
+    if (n.getParent().isForOf() || n.getParent().isForIn()) {
       return;
     }
 
@@ -3016,7 +3024,7 @@ public final class TypeCheck implements NodeTraversal.Callback, CompilerPass {
     if (toStringProperty != null) {
       return toStringProperty.getType().isFunctionType();
     }
-    ObjectType parent = type.getParentScope();
+    ObjectType parent = type.getImplicitPrototype();
     if (parent != null && !parent.isNativeObjectType()) {
       return classHasToString(parent);
     }

@@ -47,7 +47,6 @@ import java.io.PrintStream;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,6 +117,14 @@ public class CompilerOptions implements Serializable {
   private Optional<FeatureSet> outputFeatureSet = Optional.absent();
 
   private Optional<Boolean> languageOutIsDefaultStrict = Optional.absent();
+
+  /**
+   * Skips passes (logging a warning) whose PassFactory feature set doesn't include some features
+   * currently in the AST.
+   *
+   * <p>At the moment, this should only ever be set to false for testing.
+   */
+  private boolean skipUnsupportedPasses = true;
 
   /**
    * The builtin set of externs to be used
@@ -782,9 +789,6 @@ public class CompilerOptions implements Serializable {
   /** Remove goog.abstractMethod assignments and @abstract methods. */
   boolean removeAbstractMethods;
 
-  /** Remove methods that only make a super call without changing the arguments. */
-  boolean removeSuperMethods;
-
   /** Remove goog.asserts calls. */
   boolean removeClosureAsserts;
 
@@ -1071,6 +1075,17 @@ public class CompilerOptions implements Serializable {
   /** The output path for the created externs file. */
   String externExportsPath;
 
+  private final List<SortingErrorManager.ErrorReportGenerator> extraReportGenerators =
+      new ArrayList<>();
+
+  List<SortingErrorManager.ErrorReportGenerator> getExtraReportGenerators() {
+    return extraReportGenerators;
+  }
+
+  void addReportGenerator(SortingErrorManager.ErrorReportGenerator generator) {
+    extraReportGenerators.add(generator);
+  }
+
   //--------------------------------
   // Debugging Options
   //--------------------------------
@@ -1103,8 +1118,7 @@ public class CompilerOptions implements Serializable {
    */
   boolean resolveSourceMapAnnotations = true;
 
-  public List<? extends SourceMap.LocationMapping> sourceMapLocationMappings =
-      Collections.emptyList();
+  public List<? extends SourceMap.LocationMapping> sourceMapLocationMappings = ImmutableList.of();
 
   /**
    * Whether to include full file contents in the source map.
@@ -1276,7 +1290,7 @@ public class CompilerOptions implements Serializable {
     removeUnusedLocalVars = false;
     collapseVariableDeclarations = false;
     collapseAnonymousFunctions = false;
-    aliasableStrings = Collections.emptySet();
+    aliasableStrings = ImmutableSet.of();
     aliasStringsBlacklist = "";
     aliasAllStrings = false;
     outputJsStringUsage = false;
@@ -1316,12 +1330,11 @@ public class CompilerOptions implements Serializable {
     dartPass = false;
     j2clPassMode = J2clPassMode.AUTO;
     removeAbstractMethods = false;
-    removeSuperMethods = false;
     removeClosureAsserts = false;
-    stripTypes = Collections.emptySet();
-    stripNameSuffixes = Collections.emptySet();
-    stripNamePrefixes = Collections.emptySet();
-    stripTypePrefixes = Collections.emptySet();
+    stripTypes = ImmutableSet.of();
+    stripNameSuffixes = ImmutableSet.of();
+    stripNamePrefixes = ImmutableSet.of();
+    stripTypePrefixes = ImmutableSet.of();
     customPasses = null;
     markNoSideEffectCalls = false;
     defineReplacements = new HashMap<>();
@@ -1339,9 +1352,9 @@ public class CompilerOptions implements Serializable {
     cssRenamingWhitelist = null;
     processObjectPropertyString = false;
     idGenerators = ImmutableMap.of();
-    replaceStringsFunctionDescriptions = Collections.emptyList();
+    replaceStringsFunctionDescriptions = ImmutableList.of();
     replaceStringsPlaceholderToken = "";
-    replaceStringsReservedStrings = Collections.emptySet();
+    replaceStringsReservedStrings = ImmutableSet.of();
     propertyInvalidationErrors = new HashMap<>();
     inputSourceMaps = ImmutableMap.of();
 
@@ -1722,14 +1735,6 @@ public class CompilerOptions implements Serializable {
     this.removeAbstractMethods = remove;
   }
 
-  public void setRemoveSuperMethods(boolean remove) {
-    this.removeSuperMethods = remove;
-  }
-
-  public boolean getRemoveSuperMethods() {
-    return removeSuperMethods;
-  }
-
   public void setRemoveClosureAsserts(boolean remove) {
     this.removeClosureAsserts = remove;
   }
@@ -1745,7 +1750,6 @@ public class CompilerOptions implements Serializable {
   public boolean shouldColorizeErrorOutput() {
     return colorizeErrorOutput;
   }
-
 
   /**
    * Enable run-time type checking, which adds JS type assertions for debugging.
@@ -1973,6 +1977,24 @@ public class CompilerOptions implements Serializable {
 
     // Backwards compatibility for those that predate language out.
     return languageIn.toFeatureSet();
+  }
+
+  /**
+   * Sets the behavior of PhaseOptimizer when given a pass that can't handle features in the current
+   * AST.
+   *
+   * <p>Currently the only options are either to run the pass anyway, and see what happens, or to
+   * skip the pass and log a warning. Only test code should do the former.
+   *
+   * <p>In the future we may make this option public. We may also make it into an enum, and add an
+   * option to throw runtime errors upon seeing unsupported passses.
+   */
+  void setSkipUnsupportedPasses(boolean skipUnsupportedPasses) {
+    this.skipUnsupportedPasses = skipUnsupportedPasses;
+  }
+
+  boolean shouldSkipUnsupportedPasses() {
+    return skipUnsupportedPasses;
   }
 
   public boolean needsTranspilationFrom(FeatureSet languageLevel) {
@@ -2220,20 +2242,9 @@ public class CompilerOptions implements Serializable {
     this.crossChunkCodeMotion = crossChunkCodeMotion;
   }
 
-  @Deprecated
-  public void setCrossModuleCodeMotion(boolean crossChunkCodeMotion) {
-    setCrossChunkCodeMotion(crossChunkCodeMotion);
-  }
-
   public void setCrossChunkCodeMotionNoStubMethods(boolean
       crossChunkCodeMotionNoStubMethods) {
     this.crossChunkCodeMotionNoStubMethods = crossChunkCodeMotionNoStubMethods;
-  }
-
-  @Deprecated
-  public void setCrossModuleCodeMotionNoStubMethods(boolean
-      crossChunkCodeMotionNoStubMethods) {
-    setCrossChunkCodeMotionNoStubMethods(crossChunkCodeMotionNoStubMethods);
   }
 
   public void setParentChunkCanSeeSymbolsDeclaredInChildren(
@@ -2250,11 +2261,6 @@ public class CompilerOptions implements Serializable {
 
   public void setCrossChunkMethodMotion(boolean crossChunkMethodMotion) {
     this.crossChunkMethodMotion = crossChunkMethodMotion;
-  }
-
-  @Deprecated
-  public void setCrossModuleMethodMotion(boolean crossChunkMethodMotion) {
-    setCrossChunkMethodMotion(crossChunkMethodMotion);
   }
 
   public void setCoalesceVariableNames(boolean coalesceVariableNames) {
@@ -3084,7 +3090,6 @@ public class CompilerOptions implements Serializable {
             .add("quoteKeywordProperties", quoteKeywordProperties)
             .add("recordFunctionInformation", recordFunctionInformation)
             .add("removeAbstractMethods", removeAbstractMethods)
-            .add("removeSuperMethods", removeSuperMethods)
             .add("removeClosureAsserts", removeClosureAsserts)
             .add("removeJ2clAsserts", removeJ2clAsserts)
             .add("removeDeadCode", removeDeadCode)

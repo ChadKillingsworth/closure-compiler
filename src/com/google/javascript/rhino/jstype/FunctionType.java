@@ -42,6 +42,7 @@ package com.google.javascript.rhino.jstype;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.javascript.rhino.jstype.JSTypeNative.OBJECT_TYPE;
 import static com.google.javascript.rhino.jstype.JSTypeNative.U2U_CONSTRUCTOR_TYPE;
 
@@ -49,9 +50,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.javascript.rhino.CyclicSerializableLinkedHashSet;
 import com.google.javascript.rhino.ErrorReporter;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
+import com.google.javascript.rhino.jstype.JSType.EqCache;
+import com.google.javascript.rhino.jstype.JSType.SubtypingMode;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -63,6 +67,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * This derived type provides extended information about a function, including its return type and
@@ -88,6 +93,14 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
     STRUCT,
     DICT
   }
+
+  enum ConstructorAmbiguity {
+    UNKNOWN,
+    CONSTRUCTS_AMBIGUOUS_OBJECTS,
+    CONSTRUCTS_UNAMBIGUOUS_OBJECTS
+  }
+
+  private ConstructorAmbiguity constructorAmbiguity = ConstructorAmbiguity.UNKNOWN;
 
   /** {@code [[Call]]} property. */
   private ArrowType call;
@@ -136,10 +149,13 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
   private ImmutableList<ObjectType> extendedInterfaces = ImmutableList.of();
 
   /**
-   * The types which are subtypes of this function. It is only relevant for constructors and may be
-   * {@code null}.
+   * For the instance type of this ctor, the ctor types of all known subtypes of that instance type.
+   *
+   * <p>This field is only applicable to ctor functions.
    */
-  private List<FunctionType> subTypes;
+  @Nullable
+  // @MonotonicNonNull
+  private CyclicSerializableLinkedHashSet<FunctionType> knownSubtypeCtors;
 
   /** Creates an instance for a function that might be a constructor. */
   FunctionType(
@@ -491,13 +507,13 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
     if (isConstructor() || isInterface()) {
       FunctionType superClass = getSuperClassConstructor();
       if (superClass != null) {
-        superClass.addSubType(this);
+        superClass.addSubTypeIfNotPresent(this);
       }
 
       if (isInterface()) {
         for (ObjectType interfaceType : getExtendedInterfaces()) {
           if (interfaceType.getConstructor() != null) {
-            interfaceType.getConstructor().addSubType(this);
+            interfaceType.getConstructor().addSubTypeIfNotPresent(this);
           }
         }
       }
@@ -508,32 +524,6 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
     }
 
     return true;
-  }
-
-  /**
-   * check whether or not this function type has implemented the given interface if this function is
-   * an interface, check whether or not this interface has extended the given interface
-   *
-   * @param interfaceType the interface type
-   * @return true if implemented
-   */
-  public final boolean explicitlyImplOrExtInterface(FunctionType interfaceType) {
-    checkArgument(interfaceType.isInterface());
-    for (ObjectType implementedInterface : getAllImplementedInterfaces()) {
-      FunctionType ctor = implementedInterface.getConstructor();
-      if (ctor != null && ctor.checkEquivalenceHelper(interfaceType, EquivalenceMethod.IDENTITY)) {
-        return true;
-      }
-    }
-    for (ObjectType implementedInterface : getExtendedInterfaces()) {
-      FunctionType ctor = implementedInterface.getConstructor();
-      if (ctor != null && ctor.checkEquivalenceHelper(interfaceType, EquivalenceMethod.IDENTITY)) {
-        return true;
-      } else if (ctor != null) {
-        return ctor.explicitlyImplOrExtInterface(interfaceType);
-      }
-    }
-    return false;
   }
 
   /**
@@ -1142,18 +1132,15 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
     this.source = source;
   }
 
-  final void addSubTypeIfNotPresent(FunctionType subType) {
-    if (subTypes == null || !subTypes.contains(subType)) {
-      addSubType(subType);
-    }
-  }
+  /** Adds a type to the set of known subtype ctors for this type. */
+  final void addSubTypeIfNotPresent(FunctionType subtype) {
+    checkState(isConstructor() || isInterface());
 
-  /** Adds a type to the list of subtypes for this type. */
-  private void addSubType(FunctionType subType) {
-    if (subTypes == null) {
-      subTypes = new ArrayList<>();
+    if (knownSubtypeCtors == null) {
+      knownSubtypeCtors = new CyclicSerializableLinkedHashSet<>();
     }
-    subTypes.add(subType);
+
+    knownSubtypeCtors.add(subtype);
   }
 
   // NOTE(sdh): One might assume that immediately after calling this, hasCachedValues() should
@@ -1163,8 +1150,8 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
   public final void clearCachedValues() {
     super.clearCachedValues();
 
-    if (subTypes != null) {
-      for (FunctionType subType : subTypes) {
+    if (knownSubtypeCtors != null) {
+      for (FunctionType subType : knownSubtypeCtors) {
         subType.clearCachedValues();
       }
     }
@@ -1182,7 +1169,7 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
 
   public final Iterable<FunctionType> getDirectSubTypes() {
     return Iterables.concat(
-        subTypes != null ? subTypes : ImmutableList.<FunctionType>of(),
+        knownSubtypeCtors != null ? knownSubtypeCtors : ImmutableList.of(),
         this.registry.getDirectImplementors(this));
   }
 
@@ -1228,11 +1215,8 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
       extendedInterfaces = resolvedExtended;
     }
 
-    if (subTypes != null) {
-      for (int i = 0; i < subTypes.size(); i++) {
-        FunctionType subType = subTypes.get(i);
-        subTypes.set(i, JSType.toMaybeFunctionType(subType.resolve(reporter)));
-      }
+    if (knownSubtypeCtors != null) {
+      resolveKnownSubtypeCtors(reporter);
     }
 
     return super.resolveInternal(reporter);
@@ -1261,6 +1245,30 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
       changed |= (resolved != type);
     }
     return changed ? resolvedList.build() : null;
+  }
+
+  private void resolveKnownSubtypeCtors(ErrorReporter reporter) {
+    // We want to resolve all of the known subtypes-ctors so we can store those resolved types
+    // instead.
+    ImmutableList<FunctionType> setCopy;
+    do {
+      setCopy =
+          // However, resolving a type may cause more subtype-ctors to be registered. To avoid a
+          // `ConcurrentModificationException` we operate on a copy of the original set. We leave
+          // the original set in place in case resolution would re-add a previously known type.
+          ImmutableList.copyOf(knownSubtypeCtors).stream()
+              .map((t) -> JSType.toMaybeFunctionType(t.resolve(reporter)))
+              .collect(toImmutableList());
+
+      // We do this iteratively until resolving adds no more subtypes.
+    } while (setCopy.size() != knownSubtypeCtors.size());
+
+    // Additionally, resolving a type may change its `hashCode`, so we have to rebuild the set of
+    // subtype-ctors.
+    knownSubtypeCtors = null; // Reset
+    for (FunctionType subtypeCtor : setCopy) {
+      addSubTypeIfNotPresent(subtypeCtor);
+    }
   }
 
   @Override
@@ -1472,5 +1480,63 @@ public class FunctionType extends PrototypeObjectType implements Serializable {
       }
     }
     return ctorKeys.build();
+  }
+
+  boolean createsAmbiguousObjects() {
+    if (this.constructorAmbiguity == ConstructorAmbiguity.UNKNOWN) {
+      constructorAmbiguity = calculateConstructorAmbiguity();
+    }
+    return constructorAmbiguity == ConstructorAmbiguity.CONSTRUCTS_AMBIGUOUS_OBJECTS;
+  }
+
+  private ConstructorAmbiguity calculateConstructorAmbiguity() {
+    final ConstructorAmbiguity constructorAmbiguity;
+    if (isUnknownType()) {
+      constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_AMBIGUOUS_OBJECTS;
+    } else if (isNativeObjectType()) {
+      // native types other than unknown are never ambiguous
+      constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_UNAMBIGUOUS_OBJECTS;
+    } else {
+      FunctionType superConstructor = getSuperClassConstructor();
+      if (superConstructor == null) {
+        // TODO(bradfordcsmith): Why is superConstructor ever null here?
+        constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_AMBIGUOUS_OBJECTS;
+      } else if (superConstructor.createsAmbiguousObjects()) {
+        // Subclasses of ambiguous objects are also ambiguous
+        constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_AMBIGUOUS_OBJECTS;
+      } else if (source != null) {
+        // We can see the definition of the class, so we know all properties it directly declares
+        // or references.
+        // The same is true for its superclass (previous condition).
+        constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_UNAMBIGUOUS_OBJECTS;
+      } else if (isDelegateProxy()) {
+        // Type was created by the compiler as a proxy that inherits from the real type that was in
+        // the code.
+        // Since we've made it this far, we know the real type creates unambiguous objects.
+        // Therefore, the proxy does, too.
+        constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_UNAMBIGUOUS_OBJECTS;
+      } else {
+        // Type was created directly from JSDoc without a function or class literal.
+        // e.g.
+        // /**
+        //  * @constructor
+        //  * @param {string} x
+        //  * @implements {SomeInterface}
+        //  */
+        // const MyImpl = createMyImpl();
+        // The actual properties on this class are hidden from us, so we must consider it ambiguous.
+        constructorAmbiguity = ConstructorAmbiguity.CONSTRUCTS_AMBIGUOUS_OBJECTS;
+      }
+    }
+    return constructorAmbiguity;
+  }
+
+  // See also TypedScopeCreator.DELEGATE_PROXY_SUFFIX
+  // Unfortunately we cannot use that constant here.
+  private static final String DELEGATE_SUFFIX = ObjectType.createDelegateSuffix("Proxy");
+
+  private boolean isDelegateProxy() {
+    // TODO(bradfordcsmith): There should be a better way to determine that we have a proxy type.
+    return hasReferenceName() && getReferenceName().endsWith(DELEGATE_SUFFIX);
   }
 }

@@ -39,6 +39,7 @@
 
 package com.google.javascript.rhino.testing;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.truth.Fact.fact;
 import static com.google.common.truth.Fact.simpleFact;
 import static com.google.common.truth.Truth.assertAbout;
@@ -47,6 +48,7 @@ import static com.google.common.truth.Truth.assertThat;
 import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Subject;
 import com.google.errorprone.annotations.ForOverride;
+import com.google.javascript.rhino.jstype.FunctionType;
 import com.google.javascript.rhino.jstype.JSType;
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nullable;
@@ -124,6 +126,11 @@ public final class TypeSubject extends Subject<TypeSubject, JSType> {
     check("isLiteralObject()").that(actualNonNull().isLiteralObject()).isTrue();
   }
 
+  public FunctionTypeSubject isFunctionTypeThat() {
+    check("isFunctionType()").that(actualNonNull().isFunctionType()).isTrue();
+    return new FunctionTypeSubject();
+  }
+
   public TypeSubject isObjectTypeWithProperty(String propName) {
     isLiteralObject();
     withTypeOfProp(propName).isNotNull();
@@ -159,6 +166,24 @@ public final class TypeSubject extends Subject<TypeSubject, JSType> {
 
   public void toStringIsEqualTo(String typeString) {
     check("toString()").that(actualNonNull().toString()).isEqualTo(typeString);
+  }
+
+  public void getReferenceNameIsEqualTo(String referenceName) {
+    check("getReferenceName()")
+        .that(actualNonNull().toMaybeObjectType().getReferenceName())
+        .isEqualTo(referenceName);
+    check("hasReferenceName()")
+        .that(actualNonNull().toMaybeObjectType().hasReferenceName())
+        .isTrue();
+  }
+
+  public void getReferenceNameIsNull() {
+    check("getReferenceName()")
+        .that(actualNonNull().toMaybeObjectType().getReferenceName())
+        .isNull();
+    check("hasReferenceName()")
+        .that(actualNonNull().toMaybeObjectType().hasReferenceName())
+        .isFalse();
   }
 
   private JSType actualNonNull() {
@@ -219,7 +244,10 @@ public final class TypeSubject extends Subject<TypeSubject, JSType> {
     @ForOverride
     protected abstract int nullUnsafeHash(JSType type);
 
-    /** Returns a representation of {@link #test()} on {@code receiver} and {@code parameter}. */
+    /**
+     * Returns a representation of {@link #test(JSType, JSType)} on {@code receiver} and {@code
+     * parameter}.
+     */
     public abstract String stringify(@Nullable String receiver, @Nullable String parameter);
   }
 
@@ -270,5 +298,16 @@ public final class TypeSubject extends Subject<TypeSubject, JSType> {
     return (type == null)
         ? "[Java null]"
         : type.toString() + " [instanceof " + type.getClass().getName() + "]";
+  }
+
+  /** Implements test functions specific to function types. */
+  public class FunctionTypeSubject {
+    private FunctionType actualFunctionType() {
+      return checkNotNull(actualNonNull().toMaybeFunctionType(), actual());
+    }
+
+    public TypeSubject hasTypeOfThisThat() {
+      return assertType(actualFunctionType().getTypeOfThis());
+    }
   }
 }

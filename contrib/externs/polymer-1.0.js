@@ -94,8 +94,11 @@ PolymerElement.prototype.shadyRoot;
  */
 PolymerElement.prototype.$$ = function(selector) {};
 
-/** @type {string} The Custom element tag name. */
+/** @type {string} The custom element tag name. */
 PolymerElement.prototype.is;
+
+/** @type {null|!HTMLTemplateElement} The element's template. */
+PolymerElement.prototype._template;
 
 /** @type {string} The native element this element extends. */
 PolymerElement.prototype.extends;
@@ -120,6 +123,8 @@ PolymerElement.prototype.observers;
 PolymerElement.prototype.created = function() {};
 /** On ready callback. */
 PolymerElement.prototype.ready = function() {};
+/** On before register callback. */
+PolymerElement.prototype.beforeRegister = function() {};
 /** On registered callback. */
 PolymerElement.prototype.registered = function() {};
 /** On attached to the DOM callback. */

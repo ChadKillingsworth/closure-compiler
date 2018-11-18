@@ -510,6 +510,12 @@ md.$toast.preset = function() {};
 md.$toast.preset.prototype.action = function(action) {};
 
 /**
+ * @param {string} actionKey
+ * @return {!md.$toast.preset}
+ */
+md.$toast.preset.prototype.actionKey = function(actionKey) {};
+
+/**
  * @param {boolean} capsule
  * @return {!md.$toast.preset}
  */
@@ -1298,3 +1304,15 @@ md.$panel.MdPanelAnimation.prototype.closeTo = function(closeTo) {};
  * @return {!md.$panel.MdPanelAnimation}
  */
 md.$panel.MdPanelAnimation.prototype.withAnimation = function(cssClass) {};
+
+/******************************************************************************
+ * DatePickerCtrl
+ *****************************************************************************/
+
+/** @interface */
+md.DatePickerCtrl = function() {};
+
+/**
+ * @param {Date=} opt_date
+ */
+md.DatePickerCtrl.prototype.updateErrorState = function(opt_date) {};

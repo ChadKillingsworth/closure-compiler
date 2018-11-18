@@ -391,7 +391,7 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
       IdentifierBehaviour identifierBehaviour,
       NodeTraversal traversal) {
     if (identifierBehaviour.equals(IdentifierBehaviour.ES6_CLASS_INVOCATION)) {
-      checkEs6ConstructorVisibility(node, traversal);
+      checkEs6ConstructorInvocationVisibility(node, traversal);
     }
 
     if (!identifierBehaviour.equals(IdentifierBehaviour.ES5_CLASS_NAMESPACE)) {
@@ -694,11 +694,6 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
 
     // Check whether constant properties are reassigned
     if (isConstant) {
-      JSDocInfo info = propRef.getJSDocInfo();
-      if (info != null && info.getSuppressions().contains("const")) {
-        return;
-      }
-
       if (propRef.isDeletion()) {
         compiler.report(t.makeError(propRef.getSourceNode(), CONST_PROPERTY_DELETED, propertyName));
         return;
@@ -722,14 +717,14 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
               t.makeError(propRef.getSourceNode(), CONST_PROPERTY_REASSIGNED_VALUE, propertyName));
           break;
         }
-        oType = oType.getPrototypeObject();
+        oType = oType.getImplicitPrototype();
       }
 
       initializedConstantProperties.put(objectType, propertyName);
 
       // Add the prototype when we're looking at an instance object
       if (objectType.isInstanceType()) {
-        ObjectType prototype = objectType.getPrototypeObject();
+        ObjectType prototype = objectType.getImplicitPrototype();
         if (prototype != null && prototype.hasProperty(propertyName)) {
           initializedConstantProperties.put(prototype, propertyName);
         }
@@ -766,11 +761,6 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
 
   /** Reports an error if the given property is not visible in the current context. */
   private void checkPropertyVisibility(NodeTraversal t, PropertyReference propRef) {
-    JSDocInfo jsdoc = propRef.getJSDocInfo();
-    if (jsdoc != null && jsdoc.getSuppressions().contains("visibility")) {
-      return;
-    }
-
     JSType rawReferenceType = typeOrUnknown(propRef.getReceiverType()).autobox();
     ObjectType referenceType = castToObject(rawReferenceType);
 
@@ -844,22 +834,54 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
    *
    * <p>Precondition: {@code target} has an ES6 class {@link JSType}.
    */
-  private void checkEs6ConstructorVisibility(Node target, NodeTraversal traversal) {
+  private void checkEs6ConstructorInvocationVisibility(Node target, NodeTraversal traversal) {
     FunctionType ctorType = target.getJSType().toMaybeFunctionType();
+    ObjectType prototypeType = ctorType.getPrototype();
 
-    // Check constructor visibility by pretending we're accessing `Foo.prototype.constructor`.
+    // We use the class definition site because classes automatically get a implicit constructor,
+    // so there may not be a definition node.
+    @Nullable Node classDefinition = ctorType.getSource();
+
+    @Nullable
+    StaticSourceFile definingSource =
+        (classDefinition == null)
+            ? null
+            : AccessControlUtils.getDefiningSource(classDefinition, prototypeType, "constructor");
+
+    // Synthesize a `PropertyReference` for this constructor call as if we're accessing
+    // `Foo.prototype.constructor`. This object allows us to reuse the
+    // `checkNonOverriddenPropertyVisibility` method which actually reports violations.
     PropertyReference fauxCtorRef =
         PropertyReference.builder()
             .setSourceNode(target)
             .setName("constructor")
-            .setReceiverType(ctorType.getPrototype())
+            .setReceiverType(prototypeType)
             .setMutation(false) // This shouldn't matter.
             .setDeclaration(false) // This shouldn't matter.
             .setOverride(false) // This shouldn't matter.
             .setReadableTypeName(() -> ctorType.getInstanceType().toString())
             .build();
 
-    checkPropertyVisibility(traversal, fauxCtorRef);
+    Visibility annotatedCtorVisibility =
+        // This function defaults to `INHERITED` which isn't what we want here, but it does handle
+        // combining inline and `@fileoverview` visibilities.
+        getEffectiveVisibilityForNonOverriddenProperty(
+            fauxCtorRef,
+            prototypeType,
+            defaultVisibilityForFiles.get(definingSource),
+            enforceCodingConventions ? compiler.getCodingConvention() : null);
+    Visibility effectiveCtorVisibility =
+        annotatedCtorVisibility.equals(Visibility.INHERITED)
+            ? Visibility.PUBLIC
+            : annotatedCtorVisibility;
+
+    checkNonOverriddenPropertyVisibility(
+        traversal,
+        fauxCtorRef,
+        effectiveCtorVisibility,
+        ctorType,
+        target.getStaticSourceFile(),
+        definingSource);
   }
 
   private static boolean propertyIsDeclaredButNotPrivate(PropertyReference propRef) {
@@ -1105,7 +1127,7 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
 
     ObjectType objType = castToObject(type);
     if (objType != null) {
-      ObjectType implicitProto = objType.getPrototypeObject();
+      ObjectType implicitProto = objType.getImplicitPrototype();
       if (implicitProto != null) {
         return getTypeDeprecationInfo(implicitProto);
       }
@@ -1132,9 +1154,7 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
         && compiler.getCodingConvention().isConstant(prop)) {
       return true;
     }
-    for (;
-         objectType != null;
-         objectType = objectType.getPrototypeObject()) {
+    for (; objectType != null; objectType = objectType.getImplicitPrototype()) {
       JSDocInfo docInfo = objectType.getOwnPropertyJSDocInfo(prop);
       if (docInfo != null && docInfo.isConstant()) {
         return true;
@@ -1155,7 +1175,7 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
       return depReason;
     }
 
-    ObjectType implicitProto = type.getPrototypeObject();
+    ObjectType implicitProto = type.getImplicitPrototype();
     if (implicitProto != null) {
       return getPropertyDeprecationInfo(implicitProto, prop);
     }
@@ -1466,7 +1486,10 @@ class CheckAccessControls implements Callback, HotSwapCompilerPass {
     }
     Visibility raw = Visibility.INHERITED;
     if (objectType != null) {
-      raw = objectType.getOwnPropertyJSDocInfo(propertyName).getVisibility();
+      JSDocInfo jsdoc = objectType.getOwnPropertyJSDocInfo(propertyName);
+      if (jsdoc != null) {
+        raw = jsdoc.getVisibility();
+      }
     }
     JSType type = propRef.getJSType();
     boolean createdFromGoogProvide = (type != null && type.isLiteralObject());

@@ -45,13 +45,16 @@ import com.google.javascript.jscomp.lint.CheckArrayWithGoogObject;
 import com.google.javascript.jscomp.lint.CheckDuplicateCase;
 import com.google.javascript.jscomp.lint.CheckEmptyStatements;
 import com.google.javascript.jscomp.lint.CheckEnums;
+import com.google.javascript.jscomp.lint.CheckEs6ModuleFileStructure;
+import com.google.javascript.jscomp.lint.CheckEs6Modules;
 import com.google.javascript.jscomp.lint.CheckInterfaces;
 import com.google.javascript.jscomp.lint.CheckJSDocStyle;
 import com.google.javascript.jscomp.lint.CheckMissingSemicolon;
+import com.google.javascript.jscomp.lint.CheckNoMutatedEs6Exports;
+import com.google.javascript.jscomp.lint.CheckNullabilityModifiers;
 import com.google.javascript.jscomp.lint.CheckNullableReturn;
 import com.google.javascript.jscomp.lint.CheckPrimitiveAsObject;
 import com.google.javascript.jscomp.lint.CheckPrototypeProperties;
-import com.google.javascript.jscomp.lint.CheckRedundantNullabilityModifier;
 import com.google.javascript.jscomp.lint.CheckRequiresAndProvidesSorted;
 import com.google.javascript.jscomp.lint.CheckUnusedLabels;
 import com.google.javascript.jscomp.lint.CheckUselessBlocks;
@@ -150,6 +153,9 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(convertEs6TypedToEs6);
     }
 
+    passes.add(checkVariableReferencesForTranspileOnly);
+    passes.add(gatherModuleMetadataPass);
+
     if (options.getLanguageIn().toFeatureSet().has(FeatureSet.Feature.MODULES)) {
       passes.add(rewriteGoogJsImports);
       switch (options.getEs6ModuleTranspilation()) {
@@ -169,7 +175,6 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     passes.add(checkSuper);
-    passes.add(checkVariableReferencesForTranspileOnly);
 
     // It's important that the Dart super accessors pass run *before* es6ConvertSuper,
     // which is a "late" ES6 pass. This is enforced in the assertValidOrder method.
@@ -264,6 +269,8 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(convertEs6TypedToEs6);
     }
 
+    checks.add(gatherModuleMetadataPass);
+
     if (options.enables(DiagnosticGroups.LINT_CHECKS)) {
       checks.add(lintChecks);
     }
@@ -278,12 +285,13 @@ public final class DefaultPassConfig extends PassConfig {
       checks.add(checkRequires);
     }
 
+    checks.add(checkVariableReferences);
+
     if (options.getLanguageIn().toFeatureSet().has(FeatureSet.Feature.MODULES)) {
       checks.add(rewriteGoogJsImports);
       TranspilationPasses.addEs6ModulePass(checks, preprocessorSymbolTableFactory);
     }
 
-    checks.add(checkVariableReferences);
     checks.add(checkStrictMode);
 
     if (options.closurePass) {
@@ -376,11 +384,6 @@ public final class DefaultPassConfig extends PassConfig {
     }
 
     checks.add(injectRuntimeLibraries);
-
-    if (options.needsTranspilationFrom(ES6)) {
-      checks.add(convertStaticInheritance);
-    }
-
     checks.add(createEmptyPass(PassNames.BEFORE_TYPE_CHECKING));
 
     if (options.polymerVersion != null
@@ -465,6 +468,15 @@ public final class DefaultPassConfig extends PassConfig {
       // At this point all checks have been done.
       // There's no need to complete transpilation if we're only running checks.
       TranspilationPasses.addPostCheckTranspilationPasses(checks, options);
+
+      if (options.needsTranspilationFrom(ES6)) {
+        // This pass used to be necessary to make the typechecker happy with class-side inheritance.
+        // It's not necessary for typechecking now that class transpilation is post-typechecking,
+        // but it turned out to be necessary to avoid CollapseProperties breaking static inheritance
+        // TODO(b/116054203): try to only run this pass when property collapsing is enabled during
+        // the optimizations. Even better, find a way to get rid of this pass completely.
+        checks.add(convertStaticInheritance);
+      }
     }
 
     assertAllOneTimePasses(checks);
@@ -671,15 +683,9 @@ public final class DefaultPassConfig extends PassConfig {
 
     // TODO(user): This is meant for a temporary quick win.
     // In the future, we might want to improve our analysis in
-    // CrossModuleCodeMotion so we don't need to do this.
+    // CrossChunkCodeMotion so we don't need to do this.
     if (options.shouldRunCrossChunkCodeMotion()) {
       passes.add(crossModuleCodeMotion);
-    }
-
-    // Must run after ProcessClosurePrimitives, Es6ConvertSuper, and assertion removals, but
-    // before OptimizeCalls (specifically, OptimizeParameters) and DevirtualizePrototypeMethods.
-    if (options.removeSuperMethods) {
-      passes.add(removeSuperMethodsPass);
     }
 
     // Method devirtualization benefits from property disambiguation so
@@ -1089,27 +1095,6 @@ public final class DefaultPassConfig extends PassConfig {
         checkVariableReferences,
         closureGoogScopeAliases,
         "Variable checking must happen before goog.scope processing.");
-
-    assertPassOrder(
-        checks,
-        TranspilationPasses.es6ConvertSuper,
-        removeSuperMethodsPass,
-        "Super-call method removal must run after Es6 super rewriting, "
-            + "because Es6 super calls are matched on their post-processed form.");
-
-    assertPassOrder(
-        checks,
-        closurePrimitives,
-        removeSuperMethodsPass,
-        "Super-call method removal must run after Es6 super rewriting, "
-            + "because Closure base calls are expected to be in post-processed form.");
-
-    assertPassOrder(
-        checks,
-        closureCodeRemoval,
-        removeSuperMethodsPass,
-        "Super-call method removal must run after closure code removal, because "
-            + "removing assertions may make more super calls eligible to be stripped.");
   }
 
   /**
@@ -1119,11 +1104,12 @@ public final class DefaultPassConfig extends PassConfig {
    * @param optimizations The list of optimization passes
    */
   private void assertValidOrderForOptimizations(List<PassFactory> optimizations) {
-    assertPassOrder(optimizations, removeSuperMethodsPass, optimizeCalls,
-        "RemoveSuperMethodsPass must run before OptimizeCalls.");
-
-    assertPassOrder(optimizations, removeSuperMethodsPass, devirtualizePrototypeMethods,
-        "RemoveSuperMethodsPass must run before DevirtualizePrototypeMethods.");
+    assertPassOrder(
+        optimizations,
+        processDefines,
+        j2clUtilGetDefineRewriterPass,
+        "J2CL define re-writing should be done after processDefines since it relies on "
+            + "collectDefines which has side effects.");
   }
 
   /** Checks that all constructed classes are goog.require()d. */
@@ -1526,7 +1512,7 @@ public final class DefaultPassConfig extends PassConfig {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES8_MODULES;
+          return ES_NEXT;
         }
       };
 
@@ -1968,12 +1954,15 @@ public final class DefaultPassConfig extends PassConfig {
               ImmutableList.<Callback>builder()
                   .add(new CheckEmptyStatements(compiler))
                   .add(new CheckEnums(compiler))
+                  .add(new CheckEs6ModuleFileStructure(compiler))
+                  .add(new CheckEs6Modules(compiler))
+                  .add(new CheckNoMutatedEs6Exports(compiler))
                   .add(new CheckInterfaces(compiler))
                   .add(new CheckJSDocStyle(compiler))
                   .add(new CheckMissingSemicolon(compiler))
+                  .add(new CheckNullabilityModifiers(compiler))
                   .add(new CheckPrimitiveAsObject(compiler))
                   .add(new CheckPrototypeProperties(compiler))
-                  .add(new CheckRedundantNullabilityModifier(compiler))
                   .add(new CheckUnusedLabels(compiler))
                   .add(new CheckUselessBlocks(compiler));
           return combineChecks(compiler, callbacks.build());
@@ -2672,10 +2661,10 @@ public final class DefaultPassConfig extends PassConfig {
 
   /** Move global symbols to a deeper common module */
   private final PassFactory crossModuleCodeMotion =
-      new PassFactory(PassNames.CROSS_MODULE_CODE_MOTION, false) {
+      new PassFactory(PassNames.CROSS_CHUNK_CODE_MOTION, false) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          return new CrossModuleCodeMotion(
+          return new CrossChunkCodeMotion(
               compiler,
               compiler.getModuleGraph(),
               options.parentChunkCanSeeSymbolsDeclaredInChildren);
@@ -2689,10 +2678,10 @@ public final class DefaultPassConfig extends PassConfig {
 
   /** Move methods to a deeper common module */
   private final PassFactory crossModuleMethodMotion =
-      new PassFactory(PassNames.CROSS_MODULE_METHOD_MOTION, false) {
+      new PassFactory(PassNames.CROSS_CHUNK_METHOD_MOTION, false) {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
-          return new CrossModuleMethodMotion(
+          return new CrossChunkMethodMotion(
               compiler,
               compiler.getCrossModuleIdGenerator(),
               // Only move properties in externs if we're not treating
@@ -3432,19 +3421,6 @@ public final class DefaultPassConfig extends PassConfig {
         }
       };
 
-  private final PassFactory removeSuperMethodsPass =
-      new PassFactory(PassNames.REMOVE_SUPER_METHODS, true) {
-        @Override
-        protected CompilerPass create(AbstractCompiler compiler) {
-          return new RemoveSuperMethodsPass(compiler);
-        }
-
-        @Override
-        protected FeatureSet featureSet() {
-          return ES5;
-        }
-      };
-
   private final PassFactory rewriteCommonJsModules =
       new PassFactory(PassNames.REWRITE_COMMON_JS_MODULES, true) {
         @Override
@@ -3463,6 +3439,20 @@ public final class DefaultPassConfig extends PassConfig {
         @Override
         protected CompilerPass create(AbstractCompiler compiler) {
           return new Es6RewriteScriptsToModules(compiler);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES_NEXT;
+        }
+      };
+
+  private final PassFactory gatherModuleMetadataPass =
+      new PassFactory(PassNames.GATHER_MODULE_METADATA, /* isOneTimePass= */ true) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new GatherModuleMetadata(
+              compiler, options.processCommonJSModules, options.moduleResolutionMode);
         }
 
         @Override

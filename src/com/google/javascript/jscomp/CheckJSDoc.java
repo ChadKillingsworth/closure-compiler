@@ -35,9 +35,10 @@ import javax.annotation.Nullable;
 final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompilerPass {
 
   public static final DiagnosticType MISPLACED_MSG_ANNOTATION =
-      DiagnosticType.disabled("JSC_MISPLACED_MSG_ANNOTATION",
+      DiagnosticType.disabled(
+          "JSC_MISPLACED_MSG_ANNOTATION",
           "Misplaced message annotation. @desc, @hidden, and @meaning annotations should only "
-                  + "be on message nodes.");
+              + "be on message nodes.\nMessage constants must be prefixed with 'MSG_'.");
 
   public static final DiagnosticType MISPLACED_ANNOTATION =
       DiagnosticType.warning("JSC_MISPLACED_ANNOTATION",
@@ -136,6 +137,12 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
         // Suppressions are always valid here.
         return;
 
+      case COMPUTED_PROP:
+        if (n.getLastChild().isFunction()) {
+          return; // Suppressions are valid on computed properties that declare functions.
+        }
+        break;
+
       case STRING_KEY:
         if (n.getParent().isObjectLit()) {
           return;
@@ -180,7 +187,7 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
   }
 
   private void validateTypedefs(Node n, JSDocInfo info) {
-    if (info != null && info.getTypedefType() != null && isClassDecl(n)) {
+    if (info != null && info.hasTypedefType() && isClassDecl(n)) {
       reportMisplaced(n, "typedef", "@typedef does not make sense on a class declaration.");
     }
   }
@@ -570,12 +577,12 @@ final class CheckJSDoc extends AbstractPostOrderCallback implements HotSwapCompi
       if (info == null) {
         return;
       }
-       
+
       JSTypeExpression typeExpr = info.getType();
       if (typeExpr == null) {
         return;
       }
-      
+
       Node typeNode = typeExpr.getRoot();
       if (typeNode.getToken() != Token.EQUALS) {
         report(typeNode, DEFAULT_PARAM_MUST_BE_MARKED_OPTIONAL);

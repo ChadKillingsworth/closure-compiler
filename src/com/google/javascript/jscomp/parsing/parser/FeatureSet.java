@@ -74,16 +74,10 @@ public final class FeatureSet implements Serializable {
 
   public static final FeatureSet TYPESCRIPT =  ES_NEXT.with(LangVersion.TYPESCRIPT.features());
 
+  // OBJECT_PATTERN_REST is a 2018 feature, but its transpilation is done by the same pass that
+  // handles the destructuring transpilation done for ES6.
   public static final FeatureSet TYPE_CHECK_SUPPORTED =
-      ES8.without(Feature.ARRAY_PATTERN_REST)
-          .without(Feature.ASYNC_FUNCTIONS)
-          .without(Feature.CLASSES)
-          .without(Feature.CLASS_EXTENDS)
-          .without(Feature.CLASS_GETTER_SETTER)
-          .without(Feature.DEFAULT_PARAMETERS)
-          .without(Feature.DESTRUCTURING)
-          .without(Feature.MODULES)
-          .without(Feature.NEW_TARGET);
+      ES8.without(Feature.ASYNC_FUNCTIONS).with(Feature.OBJECT_PATTERN_REST);
 
   private enum LangVersion {
     ES3,
@@ -127,7 +121,8 @@ public final class FeatureSet implements Serializable {
     COMPUTED_PROPERTIES("computed property", LangVersion.ES6),
     CONST_DECLARATIONS("const declaration", LangVersion.ES6),
     DEFAULT_PARAMETERS("default parameter", LangVersion.ES6),
-    DESTRUCTURING("destructuring", LangVersion.ES6),
+    ARRAY_DESTRUCTURING("array destructuring", LangVersion.ES6),
+    OBJECT_DESTRUCTURING("object destructuring", LangVersion.ES6),
     EXTENDED_OBJECT_LITERALS("extended object literal", LangVersion.ES6),
     FOR_OF("for-of loop", LangVersion.ES6),
     GENERATORS("generator", LangVersion.ES6),

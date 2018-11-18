@@ -22,6 +22,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.base.Ascii;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -114,6 +115,64 @@ public final class ConformanceRules {
     VIOLATION,
   }
 
+  private static class Whitelist {
+    @Nullable final ImmutableList<String> prefixes;
+    @Nullable final Pattern regexp;
+    @Nullable final Requirement.WhitelistEntry whitelistEntry;
+
+    Whitelist(List<String> prefixes, List<String> regexps) throws InvalidRequirementSpec {
+      this.prefixes = ImmutableList.<String>copyOf(prefixes);
+      this.regexp = buildPattern(regexps);
+      this.whitelistEntry = null;
+    }
+
+    Whitelist(Requirement.WhitelistEntry whitelistEntry) throws InvalidRequirementSpec {
+      this.prefixes = ImmutableList.copyOf(whitelistEntry.getPrefixList());
+      this.regexp = buildPattern(whitelistEntry.getRegexpList());
+      this.whitelistEntry = whitelistEntry;
+    }
+
+    /**
+     * Returns true if the given path matches one of the prefixes or regexps, and false otherwise
+     */
+    boolean matches(String path) {
+      if (prefixes != null) {
+        for (String prefix : prefixes) {
+          if (!path.isEmpty() && path.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      return regexp != null && regexp.matcher(path).find();
+    }
+
+    @Nullable
+    private static Pattern buildPattern(List<String> reqPatterns) throws InvalidRequirementSpec {
+      if (reqPatterns == null || reqPatterns.isEmpty()) {
+        return null;
+      }
+
+      // validate the patterns
+      for (String reqPattern : reqPatterns) {
+        try {
+          Pattern.compile(reqPattern);
+        } catch (PatternSyntaxException e) {
+          throw new InvalidRequirementSpec("invalid regex pattern", e);
+        }
+      }
+
+      Pattern pattern = null;
+      try {
+        String jointRegExp = "(" + Joiner.on("|").join(reqPatterns) + ")";
+        pattern = Pattern.compile(jointRegExp);
+      } catch (PatternSyntaxException e) {
+        throw new RuntimeException("bad joined regexp", e);
+      }
+      return pattern;
+    }
+  }
+
   /**
    * A conformance rule implementation to support things common to all rules such as whitelisting
    * and reporting.
@@ -122,12 +181,11 @@ public final class ConformanceRules {
     final AbstractCompiler compiler;
     final String message;
     final Severity severity;
-    final ImmutableList<String> whitelist;
-    final ImmutableList<String> onlyApplyTo;
-    @Nullable final Pattern whitelistRegexp;
-    @Nullable final Pattern onlyApplyToRegexp;
+    final ImmutableList<Whitelist> whitelists;
+    @Nullable final Whitelist onlyApplyTo;
     final boolean reportLooseTypeViolations;
     final TypeMatchingStrategy typeMatchingStrategy;
+    final Requirement requirement;
 
     public AbstractRule(AbstractCompiler compiler, Requirement requirement)
         throws InvalidRequirementSpec {
@@ -141,14 +199,29 @@ public final class ConformanceRules {
       } else {
         severity = requirement.getSeverity();
       }
-      whitelist = ImmutableList.copyOf(requirement.getWhitelistList());
-      whitelistRegexp = buildPattern(
-          requirement.getWhitelistRegexpList());
-      onlyApplyTo = ImmutableList.copyOf(requirement.getOnlyApplyToList());
-      onlyApplyToRegexp = buildPattern(
-          requirement.getOnlyApplyToRegexpList());
+
+      // build whitelists
+      ImmutableList.Builder<Whitelist> whitelistsBuilder = new ImmutableList.Builder<>();
+      for (Requirement.WhitelistEntry entry : requirement.getWhitelistEntryList()) {
+        whitelistsBuilder.add(new Whitelist(entry));
+      }
+
+      if (requirement.getWhitelistCount() > 0 || requirement.getWhitelistRegexpCount() > 0) {
+        Whitelist whitelist =
+            new Whitelist(requirement.getWhitelistList(), requirement.getWhitelistRegexpList());
+        whitelistsBuilder.add(whitelist);
+      }
+      whitelists = whitelistsBuilder.build();
+
+      if (requirement.getOnlyApplyToCount() > 0 || requirement.getOnlyApplyToRegexpCount() > 0) {
+        onlyApplyTo =
+            new Whitelist(requirement.getOnlyApplyToList(), requirement.getOnlyApplyToRegexpList());
+      } else {
+        onlyApplyTo = null;
+      }
       reportLooseTypeViolations = requirement.getReportLooseTypeViolations();
       typeMatchingStrategy = getTypeMatchingStrategy(requirement);
+      this.requirement = requirement;
     }
 
     private static TypeMatchingStrategy getTypeMatchingStrategy(Requirement requirement) {
@@ -166,32 +239,6 @@ public final class ConformanceRules {
       }
     }
 
-    @Nullable
-    private static Pattern buildPattern(List<String> reqPatterns)
-        throws InvalidRequirementSpec {
-      if (reqPatterns == null || reqPatterns.isEmpty()) {
-        return null;
-      }
-
-      // validate the patterns
-      for (String reqPattern : reqPatterns) {
-        try {
-          Pattern.compile(reqPattern);
-        } catch (PatternSyntaxException e) {
-          throw new InvalidRequirementSpec("invalid regex pattern");
-        }
-      }
-
-      Pattern pattern = null;
-      try {
-        String jointRegExp = "(" + Joiner.on("|").join(reqPatterns) + ")";
-        pattern = Pattern.compile(jointRegExp);
-      } catch (PatternSyntaxException e) {
-        throw new RuntimeException("bad joined regexp", e);
-      }
-      return pattern;
-    }
-
     /**
      * @return Whether the code represented by the Node conforms to the
      * rule.
@@ -199,49 +246,32 @@ public final class ConformanceRules {
     protected abstract ConformanceResult checkConformance(
         NodeTraversal t, Node n);
 
-    /**
-     * @return Whether the specified Node should be checked for conformance,
-     *     according to this rule's whitelist configuration.
-     */
-    protected final boolean shouldCheckConformance(Node n) {
-      String srcfile = NodeUtil.getSourceName(n);
-      if (srcfile == null) {
-        return true;
-      } else if (!onlyApplyTo.isEmpty() || onlyApplyToRegexp != null) {
-        return pathIsInListOrRegexp(srcfile, onlyApplyTo, onlyApplyToRegexp)
-            && !pathIsInListOrRegexp(srcfile, whitelist, whitelistRegexp);
-      } else {
-        return !pathIsInListOrRegexp(srcfile, whitelist, whitelistRegexp);
-      }
-    }
-
-    private static boolean pathIsInListOrRegexp(
-        String srcfile, ImmutableList<String> list, @Nullable Pattern regexp) {
-      for (int i = 0; i < list.size(); i++) {
-        String entry = list.get(i);
-        if (!entry.isEmpty() && srcfile.startsWith(entry)) {
-          return true;
+    /** Returns the first Whitelist entry that matches the given path, and null otherwise. */
+    @Nullable
+    private Whitelist findWhitelistForPath(String path) {
+      for (Whitelist whitelist : whitelists) {
+        if (whitelist.matches(path)) {
+          return whitelist;
         }
       }
-      return regexp != null && regexp.matcher(srcfile).find();
+      return null;
     }
 
     @Override
     public final void check(NodeTraversal t, Node n) {
       ConformanceResult result = checkConformance(t, n);
-      if (result.level != ConformanceLevel.CONFORMANCE
-          && shouldCheckConformance(n)) {
-        report(t, n, result);
+      if (result.level != ConformanceLevel.CONFORMANCE) {
+        report(n, result);
       }
     }
 
     /**
      * Report a conformance warning for the given node.
+     *
      * @param n The node representing the violating code.
      * @param result The result representing the confidence of the violation.
      */
-    protected void report(
-        NodeTraversal t, Node n, ConformanceResult result) {
+    protected void report(Node n, ConformanceResult result) {
       DiagnosticType msg;
       if (severity == Severity.ERROR) {
         // Always report findings that are errors, even if the types are too loose to be certain.
@@ -258,7 +288,23 @@ public final class ConformanceRules {
       String separator = (result.note.isEmpty())
           ? ""
           : "\n";
-      t.report(n, msg, message, separator, result.note);
+      JSError err = JSError.make(n, msg, message, separator, result.note);
+
+      String path = NodeUtil.getSourceName(n);
+      Whitelist whitelist = path != null ? findWhitelistForPath(path) : null;
+      boolean shouldReport =
+          compiler
+              .getErrorManager()
+              .shouldReportConformanceViolation(
+                  requirement,
+                  whitelist != null
+                      ? Optional.fromNullable(whitelist.whitelistEntry)
+                      : Optional.absent(),
+                  err);
+
+      if (shouldReport && whitelist == null && (onlyApplyTo == null || onlyApplyTo.matches(path))) {
+        compiler.report(err);
+      }
     }
   }
 
@@ -604,7 +650,7 @@ public final class ConformanceRules {
     private boolean matchesPrototype(JSType type, JSType maybePrototype) {
       ObjectType methodClassObjectType = type.toMaybeObjectType();
       if (methodClassObjectType != null) {
-        if (methodClassObjectType.getPrototypeObject().isEquivalentTo(maybePrototype)) {
+        if (methodClassObjectType.getImplicitPrototype().isEquivalentTo(maybePrototype)) {
           return true;
         }
       }
@@ -1375,13 +1421,19 @@ public final class ConformanceRules {
           Node typeExprNode = expr.getRoot();
           if (typeExprNode.getToken() == Token.QMARK && !typeExprNode.hasChildren()) {
             return true;
+          } else if (typeExprNode.getToken() == Token.PIPE) {
+            // Might be a union type including ? that's collapsed during checking.
+            for (Node child : typeExprNode.children()) {
+              if (child.getToken() == Token.QMARK) {
+                return true;
+              }
+            }
           }
         }
       }
       return false;
     }
   }
-
 
   /**
    * Banned accessing properties from objects that are unresolved

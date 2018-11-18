@@ -21,7 +21,6 @@ import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES2018_MODU
 import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES6;
 import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES7;
 import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES8;
-import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES8_MODULES;
 import static com.google.javascript.jscomp.parsing.parser.FeatureSet.ES_NEXT;
 
 import com.google.javascript.jscomp.Es6RewriteDestructuring.ObjectDestructuringRewriteMode;
@@ -48,9 +47,8 @@ public class TranspilationPasses {
             preprocessorTableFactory.maybeInitialize(compiler);
             return new Es6RewriteModules(
                 compiler,
-                preprocessorTableFactory.getInstanceOrNull(),
-                compiler.getOptions().processCommonJSModules,
-                compiler.getOptions().moduleResolutionMode);
+                compiler.getModuleMetadataMap(),
+                preprocessorTableFactory.getInstanceOrNull());
           }
 
           @Override
@@ -75,6 +73,10 @@ public class TranspilationPasses {
   static void addPreTypecheckTranspilationPasses(
       List<PassFactory> passes, CompilerOptions options, boolean doEs6ExternsCheck) {
 
+    // TODO(bradfordcsmith): Rename this since it isn't just libraries for ES6 features anymore.
+    // Inject runtime libraries needed for the transpilation we will have to do.
+    passes.add(es6InjectRuntimeLibraries);
+
     passes.add(
         markUntranspilableFeaturesAsRemoved(
             options.getLanguageIn().toFeatureSet(), options.getOutputFeatureSet()));
@@ -93,37 +95,8 @@ public class TranspilationPasses {
               "markTrailingCommasInParameterListsRemoved", Feature.TRAILING_COMMA_IN_PARAM_LIST));
       passes.add(rewriteAsyncFunctions);
     }
-
-    if (options.needsTranspilationFrom(ES6)) {
-      if (doEs6ExternsCheck) {
-        passes.add(es6ExternsCheck);
-      }
-
-      passes.add(es6NormalizeShorthandProperties);
-      passes.add(es6RewriteClassExtends);
-      passes.add(es6ConvertSuper);
-      passes.add(es6RenameVariablesInParamLists);
-      passes.add(es6SplitVariableDeclarations);
-      passes.add(
-          getEs6RewriteDestructuring(ObjectDestructuringRewriteMode.REWRITE_ALL_OBJECT_PATTERNS));
-      passes.add(es6RewriteArrowFunction);
-      passes.add(es6ExtractClasses);
-      passes.add(es6RewriteClass);
-      // TODO(bradfordcsmith): Inject runtime libraries now includes async generator support
-      //     (ES_2018), so this should be moved earlier and possibly run unconditionally by this
-      //     method, since it will itself detect what it needs to inject or doesn't need to inject.
-      passes.add(es6InjectRuntimeLibraries);
-
-      if (!options.checksOnly) {
-        // Don't run these passes in checksOnly mode since all the typechecking & checks passes
-        // support the transpiled features.
-        // TODO(b/73387406): Move each pass above here temporarily, then into
-        // addEs6PostCheck Passes once the pass supports propagating type information
-      }
-    } else if (options.needsTranspilationOf(Feature.OBJECT_PATTERN_REST)) {
-      passes.add(es6RenameVariablesInParamLists);
-      passes.add(es6SplitVariableDeclarations);
-      passes.add(getEs6RewriteDestructuring(ObjectDestructuringRewriteMode.REWRITE_OBJECT_REST));
+    if (options.needsTranspilationFrom(ES6) && doEs6ExternsCheck) {
+      passes.add(es6ExternsCheck);
     }
   }
 
@@ -156,6 +129,16 @@ public class TranspilationPasses {
               Feature.REGEXP_FLAG_U,
               Feature.REGEXP_FLAG_Y));
 
+      passes.add(es6NormalizeShorthandProperties);
+      passes.add(es6RewriteClassExtends);
+      passes.add(es6ConvertSuper);
+      passes.add(es6RenameVariablesInParamLists);
+      passes.add(es6SplitVariableDeclarations);
+      passes.add(
+          getEs6RewriteDestructuring(ObjectDestructuringRewriteMode.REWRITE_ALL_OBJECT_PATTERNS));
+      passes.add(es6RewriteArrowFunction);
+      passes.add(es6ExtractClasses);
+      passes.add(es6RewriteClass);
       passes.add(es6RewriteRestAndSpread);
       passes.add(lateConvertEs6ToEs3);
       passes.add(es6ForOf);
@@ -163,6 +146,10 @@ public class TranspilationPasses {
       passes.add(rewriteBlockScopedDeclaration);
       passes.add(rewriteGenerators);
       passes.add(es6ConvertSuperConstructorCalls);
+    } else if (options.needsTranspilationOf(Feature.OBJECT_PATTERN_REST)) {
+      passes.add(es6RenameVariablesInParamLists);
+      passes.add(es6SplitVariableDeclarations);
+      passes.add(getEs6RewriteDestructuring(ObjectDestructuringRewriteMode.REWRITE_OBJECT_REST));
     }
   }
 
@@ -219,7 +206,13 @@ public class TranspilationPasses {
       new HotSwapPassFactory("rewriteAsyncFunctions") {
         @Override
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-          return new RewriteAsyncFunctions(compiler);
+          return new RewriteAsyncFunctions.Builder(compiler)
+              // If ES6 classes will not be transpiled away later,
+              // transpile away property references that use `super` in async functions.
+              // See explanation in RewriteAsyncFunctions.
+              .rewriteSuperPropertyReferencesWithoutSuper(
+                  !compiler.getOptions().needsTranspilationFrom(FeatureSet.ES6))
+              .build();
         }
 
         @Override
@@ -232,7 +225,13 @@ public class TranspilationPasses {
       new HotSwapPassFactory("rewriteAsyncIteration") {
         @Override
         protected HotSwapCompilerPass create(final AbstractCompiler compiler) {
-          return new RewriteAsyncIteration(compiler);
+          return new RewriteAsyncIteration.Builder(compiler)
+              // If ES6 classes will not be transpiled away later,
+              // transpile away property references that use `super` in async iteration.
+              // See explanation in RewriteAsyncIteration.
+              .rewriteSuperPropertyReferencesWithoutSuper(
+                  !compiler.getOptions().needsTranspilationFrom(FeatureSet.ES6))
+              .build();
         }
 
         @Override
@@ -385,7 +384,7 @@ public class TranspilationPasses {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES8_MODULES;
+          return FeatureSet.latest();
         }
       };
 
@@ -398,7 +397,7 @@ public class TranspilationPasses {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES2018;
+          return FeatureSet.latest();
         }
       };
 
@@ -438,7 +437,7 @@ public class TranspilationPasses {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES8;
+          return ES_NEXT;
         }
       };
 
@@ -452,7 +451,7 @@ public class TranspilationPasses {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES8;
+          return FeatureSet.latest();
         }
       };
 
@@ -469,7 +468,7 @@ public class TranspilationPasses {
 
         @Override
         protected FeatureSet featureSet() {
-          return ES8;
+          return FeatureSet.latest();
         }
       };
 

@@ -205,6 +205,17 @@ class TypeInference
                         var.setType(type);
                         lvalue.setJSType(type);
                       }
+                      if (lvalue.getParent().isDefaultValue()) {
+                        // e.g. given
+                        //   /** @param {{age: (number|undefined)}} data */
+                        //   function f({age = 99}) {}
+                        // infer that `age` is now a `number` and not `number|undefined`
+                        // but don't change the 'declared type' of `age`
+                        // TODO(b/117162687): allow people to narrow the declared type to
+                        // exclude 'undefined' inside the function body.
+                        scope =
+                            updateScopeForAssignment(scope, lvalue, type, AssignmentType.ASSIGN);
+                      }
                       return scope;
                     });
           } else if (inferredType != null) {
@@ -662,6 +673,7 @@ class TypeInference
       case NUMBER:
       case NULL:
       case REGEXP:
+      case TEMPLATELIT_STRING:
         // Primitives are typed in TypedScopeCreator.AbstractScopeBuilder#attachLiteralTypes
         break;
 
@@ -1639,9 +1651,12 @@ class TypeInference
     return currentType;
   }
 
-  /** @param call A CALL, NEW, or TAGGED_TEMPLATELIT node */
+  /**
+   * @param call A CALL, NEW, or TAGGED_TEMPLATELIT node
+   * @param scope
+   */
   private Map<TemplateType, JSType> inferTemplateTypesFromParameters(
-      FunctionType fnType, Node call) {
+      FunctionType fnType, Node call, FlowScope scope) {
     if (fnType.getTemplateTypeMap().getTemplateKeys().isEmpty()) {
       return Collections.emptyMap();
     }
@@ -1652,11 +1667,18 @@ class TypeInference
     Node callTarget = call.getFirstChild();
     if (NodeUtil.isGet(callTarget)) {
       Node obj = callTarget.getFirstChild();
+      JSType typeOfThisRequiredByTheFunction = fnType.getTypeOfThis();
+      // The type placed on a SUPER node is the superclass type, which allows us to infer the right
+      // property types for the GETPROP or GETELEM nodes built on it.
+      // However, the type actually passed as `this` when making calls this way is the `this`
+      // of the scope where the `super` appears.
+      JSType typeOfThisProvidedByTheCall = obj.isSuper() ? scope.getTypeOfThis() : getJSType(obj);
+      // We're looking at a call made as `obj['method']()` or `obj.method()` (see enclosing if),
+      // so if the call is successfully made, then the object through which it is made isn't null
+      // or undefined.
+      typeOfThisProvidedByTheCall = typeOfThisProvidedByTheCall.restrictByNotNullOrUndefined();
       maybeResolveTemplatedType(
-          fnType.getTypeOfThis(),
-          getJSType(obj).restrictByNotNullOrUndefined(),
-          resolvedTypes,
-          seenTypes);
+          typeOfThisRequiredByTheFunction, typeOfThisProvidedByTheCall, resolvedTypes, seenTypes);
     }
 
     if (call.isTaggedTemplateLit()) {
@@ -1894,7 +1916,7 @@ class TypeInference
     }
 
     // Try to infer the template types
-    Map<TemplateType, JSType> rawInferrence = inferTemplateTypesFromParameters(fnType, n);
+    Map<TemplateType, JSType> rawInferrence = inferTemplateTypesFromParameters(fnType, n, scope);
     Map<TemplateType, JSType> inferred = Maps.newIdentityHashMap();
     for (TemplateType key : keys) {
       JSType type = rawInferrence.get(key);
@@ -1951,8 +1973,7 @@ class TypeInference
           // If necessary, create a TemplatizedType wrapper around the instance
           // type, based on the types of the constructor parameters.
           ObjectType instanceType = ct.getInstanceType();
-          Map<TemplateType, JSType> inferredTypes =
-              inferTemplateTypesFromParameters(ct, n);
+          Map<TemplateType, JSType> inferredTypes = inferTemplateTypesFromParameters(ct, n, scope);
           if (inferredTypes.isEmpty()) {
             type = instanceType;
           } else {

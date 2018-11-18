@@ -39,16 +39,20 @@
 package com.google.javascript.rhino.jstype;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.javascript.rhino.testing.TypeSubject.assertType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.testing.BaseJSTypeTestCase;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
+@RunWith(JUnit4.class)
 public class TemplatizedTypeTest extends BaseJSTypeTestCase {
 
-  /**
-   * Tests the behavior of variants type.
-   */
-  public void testTemplatizedType() throws Exception {
+  /** Tests the behavior of variants type. */
+  @Test
+  public void testTemplatizedType() {
     TemplatizedType arrOfString = createTemplatizedType(
         ARRAY_TYPE, STRING_TYPE);
     assertTypeCanAssignToItself(arrOfString);
@@ -70,37 +74,43 @@ public class TemplatizedTypeTest extends BaseJSTypeTestCase {
     assertFalse(arrOfNumber.isEquivalentTo(arrOfString));
   }
 
+  @Test
   public void testEquality() {
     // Weird that we allow this as a type at all.
     TemplatizedType booleanOfString = createTemplatizedType(BOOLEAN_OBJECT_TYPE, STRING_TYPE);
     assertThat(booleanOfString.hashCode()).isEqualTo(BOOLEAN_OBJECT_TYPE.hashCode());
   }
 
-  public void testPrint1() throws Exception {
+  @Test
+  public void testPrint1() {
     TemplatizedType arrOfString = createTemplatizedType(
         ARRAY_TYPE, STRING_TYPE);
     assertEquals("Array<string>", arrOfString.toString());
   }
 
-  public void testPrint2() throws Exception {
+  @Test
+  public void testPrint2() {
     TemplatizedType arrOfTemplateType = createTemplatizedType(
         ARRAY_TYPE, new TemplateType(registry, "T"));
     assertEquals("Array<T>", arrOfTemplateType.toString());
   }
 
-  public void testPrint3() throws Exception {
+  @Test
+  public void testPrint3() {
     TemplatizedType arrOfUnknown = createTemplatizedType(
         ARRAY_TYPE, UNKNOWN_TYPE);
     assertEquals("Array<?>", arrOfUnknown.toString());
   }
 
-  public void testPrintingRawType() throws Exception {
+  @Test
+  public void testPrintingRawType() {
     ObjectType rawType = createCustomTemplatizedType("Foo");
 
     assertEquals("Foo", rawType.toString());
   }
 
-  public void testDifferentRawTypes() throws Exception {
+  @Test
+  public void testDifferentRawTypes() {
     TemplatizedType arrOfNumber = createTemplatizedType(
         ARRAY_TYPE, NUMBER_TYPE);
     TemplatizedType objType = createTemplatizedType(
@@ -109,7 +119,8 @@ public class TemplatizedTypeTest extends BaseJSTypeTestCase {
     assertFalse(objType.isSubtype(arrOfNumber));
   }
 
-  public void testSubtypingAndEquivalenceAmongCustomTemplatizedTypes() throws Exception {
+  @Test
+  public void testSubtypingAndEquivalenceAmongCustomTemplatizedTypes() {
     ObjectType rawType = createCustomTemplatizedType("Baz");
 
     JSType templatizedStringNumber =
@@ -143,6 +154,31 @@ public class TemplatizedTypeTest extends BaseJSTypeTestCase {
 
     assertTrue(templatizedStringAll.isSubtypeOf(templatizedStringUnknown));
     assertTrue(templatizedStringUnknown.isSubtypeOf(templatizedStringAll));
+  }
+
+  @Test
+  public void testGetPropertyTypeOnTemplatizedType() {
+    TemplateType templateT = registry.createTemplateType("T");
+    FunctionType ctor = // function<T>(new:Foo<T>)
+        registry.createConstructorType("Foo", null, null, null, ImmutableList.of(templateT), false);
+    ObjectType rawType = ctor.getInstanceType(); // Foo<T> == Foo
+    rawType.defineDeclaredProperty("property", templateT, null);
+
+    JSType templatizedNumber = registry.createTemplatizedType(rawType, NUMBER_TYPE);
+    assertType(templatizedNumber.toObjectType().getPropertyType("property")).isEqualTo(NUMBER_TYPE);
+  }
+
+  @Test
+  public void testFindPropertyTypeOnTemplatizedType() {
+    TemplateType templateT = registry.createTemplateType("T");
+    FunctionType ctor = // function<T>(new:Foo<T>)
+        registry.createConstructorType("Foo", null, null, null, ImmutableList.of(templateT), false);
+    ObjectType rawType = ctor.getInstanceType(); // Foo<T> == Foo
+    rawType.defineDeclaredProperty("property", templateT, null);
+
+    JSType templatizedNumber = registry.createTemplatizedType(rawType, NUMBER_TYPE);
+    // TODO(b/116830836): this should be the NUMBER_TYPE
+    assertType(templatizedNumber.findPropertyType("property")).isUnknown();
   }
 
   /** Returns an unspecialized type with the provided name and two type parameters. */

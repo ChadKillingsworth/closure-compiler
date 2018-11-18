@@ -24,14 +24,15 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.GwtIncompatible;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Ascii;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
@@ -63,7 +64,6 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -474,10 +474,15 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     options.angularPass = config.angularPass;
     options.instrumentationTemplateFile = config.instrumentationTemplateFile;
 
+    if (!config.jsonWarningsFile.isEmpty()) {
+      options.addReportGenerator(
+          new JsonErrorReportGenerator(new PrintStream(config.jsonWarningsFile), compiler));
+    }
+
     if (config.errorFormat == CommandLineConfig.ErrorFormatOption.JSON) {
-      PrintStreamJSONErrorManager printer =
-          new PrintStreamJSONErrorManager(getErrorPrintStream(), compiler);
-      compiler.setErrorManager(printer);
+      JsonErrorReportGenerator errorGenerator =
+          new JsonErrorReportGenerator(getErrorPrintStream(), compiler);
+      compiler.setErrorManager(new SortingErrorManager(ImmutableSet.of(errorGenerator)));
     }
   }
 
@@ -502,7 +507,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     checkNotNull(input);
 
     ZipInputStream zip = new ZipInputStream(input);
-    String envPrefix = env.toString().toLowerCase() + "/";
+    String envPrefix = Ascii.toLowerCase(env.toString()) + "/";
     Map<String, SourceFile> mapFromExternsZip = new HashMap<>();
     for (ZipEntry entry = null; (entry = zip.getNextEntry()) != null; ) {
       String filename = entry.getName();
@@ -771,8 +776,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     }
     if (files.isEmpty() && jsonFiles == null) {
       // Request to read from stdin.
-      files = Collections.singletonList(
-          new FlagEntry<JsSourceType>(JsSourceType.JS, "-"));
+      files = ImmutableList.of(new FlagEntry<JsSourceType>(JsSourceType.JS, "-"));
     }
     try {
       if (jsonFiles != null) {
@@ -788,9 +792,6 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   /** Creates JS extern inputs from a list of files. */
   @GwtIncompatible("Unnecessary")
   private List<SourceFile> createExternInputs(List<String> files) throws IOException {
-    if (files.isEmpty()) {
-      return ImmutableList.of(SourceFile.fromCode("/dev/null", ""));
-    }
     List<FlagEntry<JsSourceType>> externFiles = new ArrayList<>();
     for (String file : files) {
       externFiles.add(new FlagEntry<JsSourceType>(JsSourceType.EXTERN, file));
@@ -924,10 +925,11 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
    * @return A map from module name to module wrapper. Modules with no wrapper will have the empty
    *     string as their value in this map.
    */
-  public static Map<String, String> parseModuleWrappers(List<String> specs, List<JSModule> chunks) {
+  public static Map<String, String> parseModuleWrappers(
+      List<String> specs, Iterable<JSModule> chunks) {
     checkState(specs != null);
 
-    Map<String, String> wrappers = Maps.newHashMapWithExpectedSize(chunks.size());
+    Map<String, String> wrappers = new HashMap<>();
 
     // Prepopulate the map with module names.
     for (JSModule c : chunks) {
@@ -1202,7 +1204,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     } else if (continueSavedCompilationFilename != null) {
       result = restoreAndPerformStage2(continueSavedCompilationFilename);
       if (modules != null) {
-        modules = compiler.getModules();
+        modules = ImmutableList.copyOf(compiler.getModules());
       }
     } else {
       result = performFullCompilation();
@@ -1210,7 +1212,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
 
     if (createCommonJsModules) {
       // For CommonJS modules construct modules from actual inputs.
-      modules = ImmutableList.copyOf(compiler.getModuleGraph().getAllModules());
+      modules = ImmutableList.copyOf(compiler.getModules());
       for (JSModule m : modules) {
         outputFileNames.add(getModuleOutputFileName(m));
       }
@@ -1369,7 +1371,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
           outputSourceMap(options, config.jsOutputFile);
         }
       } else {
-        DiagnosticType error = outputModuleBinaryAndSourceMaps(modules, options);
+        DiagnosticType error = outputModuleBinaryAndSourceMaps(compiler.getModules(), options);
         if (error != null) {
           compiler.report(JSError.make(error));
           return 1;
@@ -1456,7 +1458,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   @GwtIncompatible("Unnecessary")
   void outputJsonStream() throws IOException {
     try (JsonWriter jsonWriter =
-            new JsonWriter(new BufferedWriter(new OutputStreamWriter(defaultJsOutput, "UTF-8")))) {
+        new JsonWriter(new BufferedWriter(new OutputStreamWriter(defaultJsOutput, UTF_8)))) {
       jsonWriter.beginArray();
       for (JsonFileSpec jsonFile : this.filesToStreamOut) {
         jsonWriter.beginObject();
@@ -1472,7 +1474,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
   }
 
   @GwtIncompatible("Unnecessary")
-  private DiagnosticType outputModuleBinaryAndSourceMaps(List<JSModule> modules, B options)
+  private DiagnosticType outputModuleBinaryAndSourceMaps(Iterable<JSModule> modules, B options)
       throws IOException {
     parsedModuleWrappers = parseModuleWrappers(
         config.moduleWrapper, modules);
@@ -2100,24 +2102,18 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     }
 
     for (CompilerInput input : inputs) {
-      // Every module has an empty file in it. This makes it easier to implement
-      // cross-module code motion.
-      //
-      // But it also leads to a weird edge case because
-      // a) If we don't have a module spec, we create a singleton module, and
-      // b) If we print a bundle file, we copy the original input files.
-      //
-      // This means that in the (rare) case where we have no inputs, and no
-      // module spec, and we're printing a bundle file, we'll have a fake
-      // input file that shouldn't be copied. So we special-case this, to
-      // make all the other cases simpler.
-      if (input.getName().equals(
-              Compiler.createFillFileName(Compiler.SINGLETON_MODULE_NAME))) {
-        checkState(1 == Iterables.size(inputs));
-        return;
+      String name = input.getName();
+      String code = input.getSourceFile().getCode();
+
+      // Ignore empty fill files created by the compiler to facilitate cross-module code motion.
+      // Note that non-empty fill files (ones whose code has actually been moved into) are still
+      // emitted. In particular, this ensures that if there are no (real) inputs the bundle will be
+      // empty.
+      if (Compiler.isFillFileName(name) && code.isEmpty()) {
+        continue;
       }
 
-      String rootRelativePath = rootRelativePathsMap.get(input.getName());
+      String rootRelativePath = rootRelativePathsMap.get(name);
       String displayName = rootRelativePath != null
           ? rootRelativePath
           : input.getName();
@@ -2125,7 +2121,7 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       out.append(displayName);
       out.append("\n");
 
-      prepForBundleAndAppendTo(out, input, input.getSourceFile().getCode());
+      prepForBundleAndAppendTo(out, input, code);
 
       out.append("\n");
     }
@@ -2751,6 +2747,13 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
       this.errorFormat = errorFormat;
       return this;
     }
+
+    private String jsonWarningsFile = "";
+
+    public CommandLineConfig setJsonWarningsFile(String jsonWarningsFile) {
+      this.jsonWarningsFile = jsonWarningsFile;
+      return this;
+    }
   }
 
   /** Representation of a source file from an encoded json stream input */
@@ -2761,6 +2764,12 @@ public abstract class AbstractCommandLineRunner<A extends Compiler,
     private String sourceMap;
     @Nullable
     private final String webpackId;
+
+    // Graal requires a non-arg constructor for use with GSON
+    // See https://github.com/oracle/graal/issues/680
+    private JsonFileSpec() {
+      this(null, null, null, null);
+    }
 
     public JsonFileSpec(String src, String path) {
       this(src, path, null, null);

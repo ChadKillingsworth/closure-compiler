@@ -42,10 +42,11 @@ package com.google.javascript.rhino.testing;
 import static com.google.common.truth.Truth.assertAbout;
 
 import com.google.common.truth.FailureMetadata;
+import com.google.common.truth.StringSubject;
 import com.google.common.truth.Subject;
+import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.Token;
-import javax.annotation.CheckReturnValue;
 
 /**
  * A Truth Subject for the Node class. Usage:
@@ -71,9 +72,9 @@ public final class NodeSubject extends Subject<NodeSubject, Node> {
     super(failureMetadata, node);
   }
 
-  @Override
+  @Override // TODO(nickreid): This isn't really equality based. Use a different name.
   public void isEqualTo(Object o) {
-    check().that(actual()).isInstanceOf(Node.class);
+    check().that(o).isInstanceOf(Node.class);
     Node node = (Node) o;
 
     check("checkTreeEquals(%s)", node).that(actual().checkTreeEquals(node)).isNull();
@@ -83,28 +84,64 @@ public final class NodeSubject extends Subject<NodeSubject, Node> {
     hasToken(type);
   }
 
-  public void hasToken(Token token) {
+  public NodeSubject hasToken(Token token) {
     check("getToken()").that(actual().getToken()).isEqualTo(token);
+    return this;
   }
 
-  public void isName(String name) {
+  public NodeSubject isName(String name) {
     check("isName()").that(actual().isName()).isTrue();
     check("getString()").that(actual().getString()).isEqualTo(name);
+    return this;
   }
 
-  public void matchesQualifiedName(String qname) {
+  public NodeSubject isMemberFunctionDef(String name) {
+    check("isMemberFunction()").that(actual().isMemberFunctionDef()).isTrue();
+    check("getString()").that(actual().getString()).isEqualTo(name);
+    return this;
+  }
+
+  public NodeSubject matchesQualifiedName(String qname) {
     check("matchesQualifiedName(%s)", qname).that(actual().matchesQualifiedName(qname)).isTrue();
+    return this;
   }
 
-  public void hasCharno(int charno) {
+  public NodeSubject hasCharno(int charno) {
     check("getCharno()").that(actual().getCharno()).isEqualTo(charno);
+    return this;
   }
 
-  public void hasLineno(int lineno) {
+  public NodeSubject hasLineno(int lineno) {
     check("getLineno()").that(actual().getLineno()).isEqualTo(lineno);
+    return this;
   }
 
-  public void hasLength(int length) {
+  public NodeSubject hasLength(int length) {
     check("getLength()").that(actual().getLength()).isEqualTo(length);
+    return this;
+  }
+
+  public NodeSubject hasEqualSourceInfoTo(Node other) {
+    return hasLineno(other.getLineno()).hasCharno(other.getCharno()).hasLength(other.getLength());
+  }
+
+  public NodeSubject isIndexable(boolean isIndexable) {
+    check("isIndexable()").that(actual().isIndexable()).isEqualTo(isIndexable);
+    return this;
+  }
+
+  public NodeSubject hasOriginalName(String originalName) {
+    check("getOriginalName()").that(actual().getOriginalName()).isEqualTo(originalName);
+    return this;
+  }
+
+  public NodeSubject hasChildren(boolean hasChildren) {
+    check("hasChildren()").that(actual().hasChildren()).isEqualTo(hasChildren);
+    return this;
+  }
+
+  @CheckReturnValue
+  public StringSubject hasStringThat() {
+    return check("getString()").that(actual().getString());
   }
 }

@@ -791,7 +791,7 @@ function TextMetrics() {}
 TextMetrics.prototype.width;
 
 /**
- * @param {Uint8ClampedArray|number} dataOrWidth In the first form, this is the
+ * @param {!Uint8ClampedArray|number} dataOrWidth In the first form, this is the
  *     array of pixel data.  In the second form, this is the image width.
  * @param {number} widthOrHeight In the first form, this is the image width.  In
  *     the second form, this is the image height.
@@ -802,7 +802,7 @@ TextMetrics.prototype.width;
  */
 function ImageData(dataOrWidth, widthOrHeight, opt_height) {}
 
-/** @const {Uint8ClampedArray} */
+/** @const {!Uint8ClampedArray} */
 ImageData.prototype.data;
 
 /** @const {number} */
@@ -1280,10 +1280,12 @@ WebWorker.prototype.onerror;
 
 /**
  * @see http://dev.w3.org/html5/workers/
+ * @param {!string} scriptURL
+ * @param {!WorkerOptions=} opt_options
  * @constructor
  * @implements {EventTarget}
  */
-function Worker(opt_arg0) {}
+function Worker(scriptURL, opt_options) {}
 
 /** @override */
 Worker.prototype.addEventListener = function(type, listener, opt_options) {};
@@ -1327,6 +1329,30 @@ Worker.prototype.onmessage;
  * @type {?function(!ErrorEvent): void}
  */
 Worker.prototype.onerror;
+
+/**
+ * @see http://dev.w3.org/html5/workers/
+ * @record
+ */
+function WorkerOptions() {}
+
+/**
+ * Defines a name for the new global environment of the worker, primarily for
+ * debugging purposes.
+ * @type {string|undefined}
+ */
+WorkerOptions.prototype.name;
+
+/**
+ * 'classic' or 'module'. Default: 'classic'.
+ * Specifying 'module' ensures the worker environment supports JavaScript
+ * modules.
+ * @type {string|undefined}
+ */
+WorkerOptions.prototype.type;
+
+// WorkerOptions.prototype.credentials is defined in fetchapi.js.
+// if type = 'module', it specifies how scriptURL is fetched.
 
 /**
  * @see http://dev.w3.org/html5/workers/
@@ -1415,7 +1441,7 @@ WorkerGlobalScope.prototype.close = function() {};
 
 /**
  * Sent when the worker encounters an error.
- * @type {?function(!ErrorEvent): void}
+ * @type {?function(string, string, number, number, !Error): void}
  */
 WorkerGlobalScope.prototype.onerror;
 
@@ -4506,7 +4532,19 @@ HTMLMeterElement.prototype.labels;
 
 
 /**
+ * @interface
+ * @see https://storage.spec.whatwg.org/#api
+ */
+function NavigatorStorage() {};
+
+/**
+ * @type {!StorageManager}
+ */
+NavigatorStorage.prototype.storage;
+
+/**
  * @constructor
+ * @implements NavigatorStorage
  * @see https://www.w3.org/TR/html5/webappapis.html#navigator
  */
 function Navigator() {}
@@ -4648,6 +4686,7 @@ Navigator.prototype.hardwareConcurrency;
 
 /**
  * @constructor
+ * @implements NavigatorStorage
  * @see https://html.spec.whatwg.org/multipage/workers.html#the-workernavigator-object
  */
 function WorkerNavigator() {}
@@ -4664,6 +4703,12 @@ WorkerNavigator.prototype.deviceMemory;
  * @see https://developer.mozilla.org/en-US/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
  */
 WorkerNavigator.prototype.hardwareConcurrency;
+
+/**
+ * @type {!StorageManager}
+ * @see https://storage.spec.whatwg.org
+ */
+WorkerNavigator.prototype.storage;
 
 /**
  * @record

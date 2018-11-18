@@ -74,11 +74,6 @@ class InstanceObjectType extends PrototypeObjectType {
   }
 
   @Override
-  public boolean hasReferenceName() {
-    return getConstructor().hasReferenceName();
-  }
-
-  @Override
   public ObjectType getImplicitPrototype() {
     return getConstructor().getPrototype();
   }
@@ -191,6 +186,11 @@ class InstanceObjectType extends PrototypeObjectType {
   @Override
   public Iterable<ObjectType> getCtorExtendedInterfaces() {
     return getConstructor().getExtendedInterfaces();
+  }
+
+  @Override
+  public boolean isAmbiguousObject() {
+    return getConstructor().createsAmbiguousObjects();
   }
 
   // The owner will always be a resolved type, so there's no need to set

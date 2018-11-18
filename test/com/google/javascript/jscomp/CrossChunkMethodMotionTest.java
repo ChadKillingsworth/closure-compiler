@@ -16,39 +16,44 @@
 
 package com.google.javascript.jscomp;
 
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
+
 /**
- * Tests for {@link CrossModuleMethodMotion}.
+ * Tests for {@link CrossChunkMethodMotion}.
  *
  * @author nicksantos@google.com (Nick Santos)
  */
-public final class CrossModuleMethodMotionTest extends CompilerTestCase {
+@RunWith(JUnit4.class)
+public final class CrossChunkMethodMotionTest extends CompilerTestCase {
   private static final String EXTERNS =
       "IFoo.prototype.bar; var mExtern; mExtern.bExtern; mExtern['cExtern'];";
 
   private boolean canMoveExterns = false;
   private boolean noStubs = false;
-  private final String STUB_DECLARATIONS =
-      CrossModuleMethodMotion.STUB_DECLARATIONS;
+  private static final String STUB_DECLARATIONS = CrossChunkMethodMotion.STUB_DECLARATIONS;
 
-  public CrossModuleMethodMotionTest() {
+  public CrossChunkMethodMotionTest() {
     super(EXTERNS);
   }
 
   @Override
   protected CompilerPass getProcessor(Compiler compiler) {
-    return new CrossModuleMethodMotion(
-        compiler, new IdGenerator(), canMoveExterns,
-        noStubs);
+    return new CrossChunkMethodMotion(compiler, new IdGenerator(), canMoveExterns, noStubs);
   }
 
   @Override
-  protected void setUp() throws Exception {
+  @Before
+  public void setUp() throws Exception {
     super.setUp();
     canMoveExterns = false;
     noStubs = false;
     enableNormalize();
   }
 
+  @Test
   public void testMovePrototypeMethod1() {
     testSame(createModuleChain(
                  "function Foo() {}" +
@@ -72,6 +77,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testMovePrototypeMethod2() {
     test(createModuleChain(
              "function Foo() {}" +
@@ -89,6 +95,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testMovePrototypeMethod3() {
     testSame(createModuleChain(
              "function Foo() {}" +
@@ -97,6 +104,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
              "(new Foo).method()"));
   }
 
+  @Test
   public void testMovePrototypeMethodWithoutStub() {
     testSame(createModuleChain(
         "function Foo() {}" +
@@ -119,6 +127,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testNoMovePrototypeMethodIfAliasedNoStubs() {
     // don't move if noStubs enabled and there's a reference to the method to be moved
     noStubs = true;
@@ -174,6 +183,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testNoMovePrototypeMethodRedeclaration1() {
     // don't move if it can be overwritten when a sibling module is loaded.
     testSame(createModuleStar(
@@ -185,6 +195,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
              "(new Foo).method()"));
   }
 
+  @Test
   public void testNoMovePrototypeMethodRedeclaration2() {
     // don't move if it can be overwritten when a later module is loaded.
     testSame(createModuleChain(
@@ -196,6 +207,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
              "Foo.prototype.method = function() {};"));
   }
 
+  @Test
   public void testNoMovePrototypeMethodRedeclaration3() {
     // Note: it is reasonable to move the method in this case,
     // but it is difficult enough to prove that we don't.
@@ -208,6 +220,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
              "(new Foo).method()"));
   }
 
+  @Test
   public void testMovePrototypeRecursiveMethod() {
     test(createModuleChain(
              "function Foo() {}" +
@@ -225,6 +238,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testCantMovePrototypeProp() {
     testSame(createModuleChain(
                  "function Foo() {}" +
@@ -233,6 +247,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
                  "(new Foo).baz()"));
   }
 
+  @Test
   public void testMoveMethodsInRightOrder() {
     test(createModuleChain(
              "function Foo() {}" +
@@ -254,6 +269,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testMoveMethodsInRightOrder2() {
     JSModule[] m = createModules(
         "function Foo() {}" +
@@ -296,6 +312,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testMoveMethodsUsedInTwoModules() {
     testSame(createModuleStar(
                  "function Foo() {}" +
@@ -306,6 +323,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
                  "(new Foo).baz()"));
   }
 
+  @Test
   public void testMoveMethodsUsedInTwoModules2() {
     JSModule[] modules = createModules(
         "function Foo() {}" +
@@ -334,6 +352,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testTwoMethods() {
     test(createModuleChain(
              "function Foo() {}" +
@@ -356,6 +375,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testTwoMethods2() {
     // if the programmer screws up the module order, we don't try to correct
     // the mistake.
@@ -378,6 +398,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
          });
   }
 
+  @Test
   public void testGlobalFunctionsInGraph() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -397,6 +418,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
   }
 
   // Read of closure variable disables method motions.
+  @Test
   public void testClosureVariableReads1() {
     testSame(createModuleChain(
             "function Foo() {}" +
@@ -409,6 +431,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
   }
 
   // Read of global variable is fine.
+  @Test
   public void testClosureVariableReads2() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -448,6 +471,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testClosureVariableReads3() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -489,6 +513,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
   }
 
   // Read of global variable is fine.
+  @Test
   public void testNoClosureVariableReads1() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -508,6 +533,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
   }
 
   // Read of a local is fine.
+  @Test
   public void testNoClosureVariableReads2() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -526,6 +552,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
   }
 
   // An anonymous inner function reading a closure variable is fine.
+  @Test
   public void testInnerFunctionClosureVariableReads() {
     test(createModuleChain(
             "function Foo() {}" +
@@ -544,6 +571,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testIssue600() {
     testSame(
         createModuleChain(
@@ -564,6 +592,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
             "})();"));
   }
 
+  @Test
   public void testIssue600b() {
     testSame(
         createModuleChain(
@@ -583,6 +612,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
             "})();"));
   }
 
+  @Test
   public void testIssue600c() {
     test(
         createModuleChain(
@@ -612,6 +642,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testIssue600d() {
     test(
         createModuleChain(
@@ -645,6 +676,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
         });
   }
 
+  @Test
   public void testIssue600e() {
     testSame(
         createModuleChain(
@@ -664,6 +696,7 @@ public final class CrossModuleMethodMotionTest extends CompilerTestCase {
             "})();"));
   }
 
+  @Test
   public void testPrototypeOfThisAssign() {
     testSame(
         createModuleChain(

@@ -16,17 +16,23 @@
 
 package com.google.javascript.jscomp;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.google.common.collect.ImmutableList;
 import com.google.javascript.rhino.Node;
-import junit.framework.TestCase;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
 /**
  * Tests for {@link RecordFunctionInformation}
  *
  */
 
-public final class RecordFunctionInformationTest extends TestCase {
+@RunWith(JUnit4.class)
+public final class RecordFunctionInformationTest {
 
+  @Test
   public void testFunction() {
     String g = "function g(){}";
     String fAndG = "function f(){" + g + "}";
@@ -59,6 +65,7 @@ public final class RecordFunctionInformationTest extends TestCase {
     test(js, expected);
   }
 
+  @Test
   public void testMotionPreservesOriginalSourceName() {
     String f = "function f(){}";
     String g = "function g(){}";
@@ -128,7 +135,7 @@ public final class RecordFunctionInformationTest extends TestCase {
         new RecordFunctionInformation(compiler, collectFunctionNames.getFunctionNames());
     processor.process(externsRoot, mainRoot);
     FunctionInformationMap result = processor.getMap();
-    assertEquals(expected, result);
+    assertThat(result).isEqualTo(expected);
   }
 
   private Compiler compilerFor(JSModule[] modules) {
