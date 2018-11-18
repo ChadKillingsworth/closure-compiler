@@ -143,7 +143,7 @@ public class UnionTypeBuilderTest extends BaseJSTypeTestCase {
             createFunctionWithReturn(base),
             base,
             createFunctionWithReturn(sub));
-    assertEquals("(Base|function(): Base)", union.toString());
+    assertThat(union.toString()).isEqualTo("(Base|function(): Base)");
   }
 
   @Test
@@ -154,7 +154,7 @@ public class UnionTypeBuilderTest extends BaseJSTypeTestCase {
             createFunctionWithReturn(sub),
             sub,
             createFunctionWithReturn(base));
-    assertEquals("(Base|function(): Base)", union.toString());
+    assertThat(union.toString()).isEqualTo("(Base|function(): Base)");
   }
 
   @Test
@@ -164,9 +164,10 @@ public class UnionTypeBuilderTest extends BaseJSTypeTestCase {
     addRecordType(builder, false);
     addRecordType(builder, false);
 
-    assertEquals(1, builder.getAlternatesCount());
+    assertThat(builder.getAlternatesCount()).isEqualTo(1);
   }
 
+  @Test
   public void testDifferentTemplateSpecializations_whenUnioned_doNotLeakRawType() {
     // Given
     JSType arrayOfString = registry.createTemplatizedType(ARRAY_TYPE, STRING_TYPE);
@@ -191,7 +192,7 @@ public class UnionTypeBuilderTest extends BaseJSTypeTestCase {
     addRecordType(builder, true);
     addRecordType(builder, true);
 
-    assertEquals(1, builder.getAlternatesCount());
+    assertThat(builder.getAlternatesCount()).isEqualTo(1);
   }
 
   private void addRecordType(UnionTypeBuilder builder, boolean inferred) {
@@ -206,7 +207,7 @@ public class UnionTypeBuilderTest extends BaseJSTypeTestCase {
     for (JSType type : types) {
       builder.addAlternate(type);
     }
-    assertEquals(expected, builder.build().toString());
+    assertThat(builder.build().toString()).isEqualTo(expected);
   }
 
   public FunctionType createFunctionWithReturn(JSType type) {

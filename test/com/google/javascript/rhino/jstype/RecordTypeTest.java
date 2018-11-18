@@ -38,6 +38,7 @@
 
 package com.google.javascript.rhino.jstype;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.google.javascript.rhino.testing.TypeSubject.assertType;
 
 import com.google.javascript.rhino.jstype.JSType.Nullability;
@@ -58,14 +59,14 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
         .addProperty("number", NUMBER_TYPE, null)
         .addProperty("string", STRING_TYPE, null)
         .build();
-    assertEquals("{\n  loop: number,\n  number: number,\n  string: string\n}",
-        record.toString());
+    assertThat(record.toString())
+        .isEqualTo("{\n  loop: number,\n  number: number,\n  string: string\n}");
 
     loop.setReferencedType(record);
-    assertEquals("{\n  loop: {...},\n  number: number,\n  string: string\n}",
-        record.toString());
-    assertEquals("{loop: ?, number: number, string: string}",
-        record.toAnnotationString(Nullability.EXPLICIT));
+    assertThat(record.toString())
+        .isEqualTo("{\n  loop: {...},\n  number: number,\n  string: string\n}");
+    assertThat(record.toAnnotationString(Nullability.EXPLICIT))
+        .isEqualTo("{loop: ?, number: number, string: string}");
 
     Asserts.assertEquivalenceOperations(record, loop);
   }
@@ -85,25 +86,25 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
         .addProperty("a10", NUMBER_TYPE, null)
         .addProperty("a11", NUMBER_TYPE, null)
         .build();
-    assertEquals(
-        LINE_JOINER.join(
-            "{",
-            "  a01: number,",
-            "  a02: number,",
-            "  a03: number,",
-            "  a04: number,",
-            "  a05: number,",
-            "  a06: number,",
-            "  a07: number,",
-            "  a08: number,",
-            "  a09: number,",
-            "  a10: number, ...",
-            "}"),
-        record.toString());
-    assertEquals(
-        "{a01: number, a02: number, a03: number, a04: number, a05: number, a06: number," +
-        " a07: number, a08: number, a09: number, a10: number, a11: number}",
-        record.toAnnotationString(Nullability.EXPLICIT));
+    assertThat(record.toString())
+        .isEqualTo(
+            LINE_JOINER.join(
+                "{",
+                "  a01: number,",
+                "  a02: number,",
+                "  a03: number,",
+                "  a04: number,",
+                "  a05: number,",
+                "  a06: number,",
+                "  a07: number,",
+                "  a08: number,",
+                "  a09: number,",
+                "  a10: number, ...",
+                "}"));
+    assertThat(record.toAnnotationString(Nullability.EXPLICIT))
+        .isEqualTo(
+            "{a01: number, a02: number, a03: number, a04: number, a05: number, a06: number,"
+                + " a07: number, a08: number, a09: number, a10: number, a11: number}");
   }
 
   @Test
@@ -142,8 +143,8 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
     JSType recordB = new RecordTypeBuilder(registry)
         .addProperty("a", UNKNOWN_TYPE, null)
         .build();
-    assertTrue(recordA.isSubtypeOf(recordB));
-    assertTrue(recordB.isSubtypeOf(recordA));
+    assertThat(recordA.isSubtypeOf(recordB)).isTrue();
+    assertThat(recordB.isSubtypeOf(recordA)).isTrue();
   }
 
   @Test
@@ -162,8 +163,8 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
             .build(),
             null)
         .build();
-    assertTrue(recordA.isSubtypeOf(recordB));
-    assertTrue(recordB.isSubtypeOf(recordA));
+    assertThat(recordA.isSubtypeOf(recordB)).isTrue();
+    assertThat(recordB.isSubtypeOf(recordA)).isTrue();
   }
 
   @Test
@@ -182,8 +183,8 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
             .build(),
             null)
         .build();
-    assertFalse(recordA.isSubtypeOf(recordB));
-    assertFalse(recordB.isSubtypeOf(recordA));
+    assertThat(recordA.isSubtypeOf(recordB)).isFalse();
+    assertThat(recordB.isSubtypeOf(recordA)).isFalse();
   }
 
   @Test
@@ -201,10 +202,10 @@ public class RecordTypeTest extends BaseJSTypeTestCase {
         .addProperty("b",
             registry.createUnionType(NUMBER_TYPE, STRING_TYPE), null)
         .build();
-    assertFalse(recordA.isSubtypeOf(recordB));
-    assertFalse(recordB.isSubtypeOf(recordA));
-    assertFalse(recordC.isSubtypeOf(recordB));
-    assertTrue(recordB.isSubtypeOf(recordC));
-    assertTrue(recordA.isSubtypeOf(recordC));
+    assertThat(recordA.isSubtypeOf(recordB)).isFalse();
+    assertThat(recordB.isSubtypeOf(recordA)).isFalse();
+    assertThat(recordC.isSubtypeOf(recordB)).isFalse();
+    assertThat(recordB.isSubtypeOf(recordC)).isTrue();
+    assertThat(recordA.isSubtypeOf(recordC)).isTrue();
   }
 }

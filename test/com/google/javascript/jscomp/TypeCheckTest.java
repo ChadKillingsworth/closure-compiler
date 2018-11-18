@@ -12913,6 +12913,68 @@ public final class TypeCheckTest extends TypeCheckTestCase {
         "required: string");
   }
 
+  @Test
+  public void testGetPropertyTypeOfUnionType_withMatchingTemplates() {
+    testTypes(
+        lines(
+            "/** @interface @template T */ function Foo() {};",
+            "/** @type {T} */",
+            "Foo.prototype.p;",
+            "/** @interface @template U */ function Bar() {};",
+            "/** @type {U} */",
+            "Bar.prototype.p;",
+            "",
+            "/**",
+            " * @param {!Foo<number>|!Bar<number>} x",
+            " * @return {string} ",
+            " */",
+            "var f = function(x) { return x.p; };"),
+        lines(
+            "inconsistent return type", //
+            "found   : number",
+            "required: string"));
+  }
+
+  @Test
+  public void testGetPropertyTypeOfUnionType_withDifferingTemplates() {
+    testTypes(
+        lines(
+            "/** @interface @template T */ function Foo() {};",
+            "/** @type {T} */",
+            "Foo.prototype.p;",
+            "/** @interface @template U */ function Bar() {};",
+            "/** @type {U} */",
+            "Bar.prototype.p;",
+            "",
+            "/**",
+            " * @param {!Foo<number>|!Bar<string>} x",
+            " * @return {string} ",
+            " */",
+            "var f = function(x) { return x.p; };"),
+        lines(
+            "inconsistent return type", //
+            "found   : (number|string)",
+            "required: string"));
+  }
+
+  @Test
+  public void testInvalidAssignToPropertyTypeOfUnionType_withMatchingTemplates_doesntWarn() {
+    // We don't warn for this assignment because we treat the type of `x.p` as inferred...
+    testTypes(
+        lines(
+            "/** @interface @template T */ function Foo() {};",
+            "/** @type {T} */",
+            "Foo.prototype.p;",
+            "/** @interface @template U */ function Bar() {};",
+            "/** @type {U} */",
+            "Bar.prototype.p;",
+            "",
+            "/**",
+            " * @param {!Foo<number>|!Bar<number>} x",
+            " */",
+            "var f = function(x) { x.p = 'not a number'; };"));
+  }
+
   // TODO(user): We should flag these as invalid. This will probably happen
   // when we make sure the interface is never referenced outside of its
   // definition. We might want more specific and helpful error messages.
@@ -22524,6 +22586,80 @@ public final class TypeCheckTest extends TypeCheckTestCase {
             "right side of comparison", //
             "found   : undefined",
             "required: string"));
+  }
+
+  @Test
+  public void testStrayTypedefOnRecordInstanceDoesNotModifyRecord() {
+    // This is a common pattern for angular.  This test is checking that adding the property to one
+    // instance does not require all other instances to specify it as well.
+    testTypes(
+        lines(
+            "/** @record */",
+            "function Component() {}",
+            "",
+            "/** @const {!Component} */",
+            "var MyComponent = {};",
+            "/** @typedef {string} */",
+            "MyComponent.MyString;",
+            "",
+            "/** @const {!Component} */",
+            "var OtherComponent = {};"));
+  }
+
+  @Test
+  public void testStrayPropertyOnRecordInstanceDoesNotModifyRecord() {
+    // This is a common pattern for angular.  This test is checking that adding the property to one
+    // instance does not require all other instances to specify it as well.
+    testTypes(
+        lines(
+            "/** @record */",
+            "function Component() {}",
+            "",
+            "/** @const {!Component} */",
+            "var MyComponent = {};",
+            "/** @const {string} */",
+            "MyComponent.NAME = 'MyComponent';", // strict inexistent property is usually suppressed
+            "",
+            "/** @const {!Component} */",
+            "var OtherComponent = {};"),
+        STRICT_INEXISTENT_PROPERTY);
+  }
+
+  @Test
+  public void testStrayTypedefOnRecordTypedefDoesNotModifyRecord() {
+    // This is a common pattern for angular.  This test is checking that adding the property to one
+    // instance does not require all other instances to specify it as well.
+    testTypes(
+        lines(
+            "/** @typedef {{foo: number}} */",
+            "var Component = {};",
+            "",
+            "/** @const {!Component} */",
+            "var MyComponent = {foo: 1};",
+            "/** @typedef {string} */",
+            "MyComponent.MyString;",
+            "",
+            "/** @const {!Component} */",
+            "var OtherComponent = {foo: 2};"));
+  }
+
+  @Test
+  public void testStrayPropertyOnRecordTypedefDoesNotModifyRecord() {
+    // This is a common pattern for angular.  This test is checking that adding the property to one
+    // instance does not require all other instances to specify it as well.
+    testTypes(
+        lines(
+            "/** @typedef {{foo: number}} */",
+            "var Component = {};",
+            "",
+            "/** @const {!Component} */",
+            "var MyComponent = {foo: 1 };",
+            "/** @const {string} */",
+            "MyComponent.NAME = 'MyComponent';",
+            "",
+            "/** @const {!Component} */",
+            "var OtherComponent = {foo: 2};"),
+        STRICT_INEXISTENT_PROPERTY);
   }
 
   private void testClosureTypes(String js, String description) {

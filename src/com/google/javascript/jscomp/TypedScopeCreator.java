@@ -67,6 +67,7 @@ import com.google.javascript.rhino.InputId;
 import com.google.javascript.rhino.JSDocInfo;
 import com.google.javascript.rhino.Node;
 import com.google.javascript.rhino.NominalTypeBuilder;
+import com.google.javascript.rhino.QualifiedName;
 import com.google.javascript.rhino.StaticSymbolTable;
 import com.google.javascript.rhino.Token;
 import com.google.javascript.rhino.jstype.EnumType;
@@ -224,17 +225,17 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
     }
   }
 
-  /** Stores the type and qualified name for a destructuring rvalue, which has no AST node */
+  /** Stores the type and qualified name for a destructuring rvalue. */
   private static class RValueInfo {
     @Nullable final JSType type;
-    @Nullable final String qualifiedName;
+    @Nullable final QualifiedName qualifiedName;
 
-    private RValueInfo(JSType type, String qualifiedName) {
+    RValueInfo(JSType type, QualifiedName qualifiedName) {
       this.type = type;
       this.qualifiedName = qualifiedName;
     }
 
-    private static RValueInfo empty() {
+    static RValueInfo empty() {
       return new RValueInfo(null, null);
     }
   }
@@ -881,7 +882,8 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
                 //   for (const {x, y} of data) {
                 value != null
                     ? new RValueInfo(
-                        getDeclaredRValueType(/* lValue= */ null, value), value.getQualifiedName())
+                        getDeclaredRValueType(/* lValue= */ null, value),
+                        value.getQualifiedNameObject())
                     : new RValueInfo(unknownType, /* qualifiedName= */ null));
       }
     }
@@ -908,16 +910,16 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       RValueInfo rvalue = patternTypeSupplier.get();
       JSType patternType = rvalue.type;
       String propertyName = target.getStringKey().getString();
-      String qualifiedName =
-          rvalue.qualifiedName != null ? rvalue.qualifiedName + "." + propertyName : null;
+      QualifiedName qname =
+          rvalue.qualifiedName != null ? rvalue.qualifiedName.getprop(propertyName) : null;
       if (patternType == null || patternType.isUnknownType()) {
-        return new RValueInfo(null, qualifiedName);
+        return new RValueInfo(null, qname);
       }
       if (patternType.hasProperty(propertyName)) {
         JSType type = patternType.findPropertyType(propertyName);
-        return new RValueInfo(type, qualifiedName);
+        return new RValueInfo(type, qname);
       }
-      return new RValueInfo(null, qualifiedName);
+      return new RValueInfo(null, qname);
     }
 
     void defineDestructuringPatternInVarDeclaration(
@@ -1872,7 +1874,7 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       if (NodeUtil.isConstantDeclaration(compiler.getCodingConvention(), info, lValue)) {
         if (rValue != null) {
           JSType rValueType = getDeclaredRValueType(lValue, rValue);
-          maybeDeclareAliasType(lValue, rValue.getQualifiedName(), rValueType);
+          maybeDeclareAliasType(lValue, rValue.getQualifiedNameObject(), rValueType);
           if (rValueType != null) {
             return rValueType;
           }
@@ -1898,17 +1900,30 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
     /**
      * For a const alias, like `const alias = other.name`, this may declare `alias` as a type name,
      * depending on what other.name is defined to be.
-     *
-     * @param rvalueName the rvalue's qualified name if it exists, null otherwise
      */
-    private void maybeDeclareAliasType(Node lValue, String rvalueName, JSType rValueType) {
+    private void maybeDeclareAliasType(
+        Node lValue, @Nullable QualifiedName rValue, @Nullable JSType rValueType) {
       // NOTE: this allows some strange patterns such allowing instance properties
       // to be aliases of constructors, and then creating a local alias of that to be
       // used as a type name.  Consider restricting this.
 
-      if (!lValue.isQualifiedName() || (rvalueName == null)) {
+      if (!lValue.isQualifiedName() || (rValue == null)) {
         return;
       }
+
+      Node definitionNode = getDefinitionNode(rValue);
+      if (definitionNode != null) {
+        JSType typedefType = definitionNode.getTypedefTypeProp();
+        if (typedefType != null) {
+          // Propagate typedef type to typedef aliases.
+          lValue.setTypedefTypeProp(typedefType);
+          String qName = lValue.getQualifiedName();
+          typeRegistry.identifyNonNullableName(qName);
+          typeRegistry.declareType(currentScope, qName, typedefType);
+          return;
+        }
+      }
+
       // Treat @const-annotated aliases like @constructor/@interface if RHS has instance type
       if (rValueType != null
           && rValueType.isFunctionType()
@@ -1916,13 +1931,23 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
         FunctionType functionType = rValueType.toMaybeFunctionType();
         typeRegistry.declareType(
             currentScope, lValue.getQualifiedName(), functionType.getInstanceType());
-      } else {
+      } else if (rValue != null) {
         // Also infer a type name for aliased @typedef
-        JSType rhsNamedType = typeRegistry.getType(currentScope, rvalueName);
+        JSType rhsNamedType = typeRegistry.getType(currentScope, rValue.join());
         if (rhsNamedType != null) {
           typeRegistry.declareType(currentScope, lValue.getQualifiedName(), rhsNamedType);
         }
       }
+    }
+
+    /** Returns the AST node associated with the definition, if any. */
+    private Node getDefinitionNode(QualifiedName qname) {
+      if (qname.isSimple()) {
+        TypedVar var = currentScope.getVar(qname.getComponent());
+        return var != null ? var.getNameNode() : null;
+      }
+      ObjectType parent = ObjectType.cast(lookupQualifiedName(qname.getOwner()));
+      return parent != null ? parent.getPropertyDefSite(qname.getComponent()) : null;
     }
 
     /**
@@ -1951,7 +1976,7 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
 
       // If rValue is a name, try looking it up in the current scope.
       if (rValue.isQualifiedName()) {
-        return lookupQualifiedName(rValue);
+        return lookupQualifiedName(rValue.getQualifiedNameObject());
       }
 
       // Check for simple invariant operations, such as "!x" or "+x" or "''+x"
@@ -1968,7 +1993,7 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       }
 
       if (rValue.isNew() && rValue.getFirstChild().isQualifiedName()) {
-        JSType targetType = lookupQualifiedName(rValue.getFirstChild());
+        JSType targetType = lookupQualifiedName(rValue.getFirstChild().getQualifiedNameObject());
         if (targetType != null) {
           FunctionType fnType = targetType
               .restrictByNotNullOrUndefined()
@@ -2002,23 +2027,20 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       return null;
     }
 
-    private JSType lookupQualifiedName(Node n) {
-      String name = n.getQualifiedName();
-      TypedVar slot = currentScope.getVar(name);
+    private JSType lookupQualifiedName(QualifiedName qname) {
+      TypedVar slot = currentScope.getVar(qname.join());
       if (slot != null && !slot.isTypeInferred()) {
         JSType type = slot.getType();
         if (type != null && !type.isUnknownType()) {
           return type;
         }
-      } else if (n.isGetProp()) {
-        JSType type = lookupQualifiedName(n.getFirstChild());
+      } else if (!qname.isSimple()) {
+        JSType type = lookupQualifiedName(qname.getOwner());
         // NOTE: The scope only contains declared types at this
         // point so any property we find is a value type
         // to look up properties on.
         if (type != null) {
-          JSType propType = type.findPropertyType(
-             n.getLastChild().getString());
-          return propType;
+          return type.findPropertyType(qname.getComponent());
         }
       }
       return null;
@@ -2148,7 +2170,7 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
      */
     void maybeDeclareQualifiedName(NodeTraversal t, JSDocInfo info,
         Node n, Node parent, Node rhsValue) {
-      checkForTypedef(n, info);
+      checkForTypedef(t, n, info);
 
       Node ownerNode = n.getFirstChild();
       String ownerName = ownerNode.getQualifiedName();
@@ -2221,24 +2243,9 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       if (!inferred) {
         ObjectType ownerType = getObjectSlot(ownerName);
         if (ownerType != null) {
-          // Only declare this as an official property if it has not been
-          // declared yet.
-          if (!ownerType.hasOwnProperty(propName) || ownerType.isPropertyTypeInferred(propName)) {
-            // Define the property if any of the following are true:
-            //   (1) it's a non-native extern type. Native types are excluded here because we don't
-            //       want externs of the form "/** @type {!Object} */ var api = {}; api.foo;" to
-            //       cause a property "foo" to be declared on Object.
-            //   (2) it's a non-instance type. This primarily covers static properties on
-            //       constructors (which are FunctionTypes, not InstanceTypes).
-            //   (3) it's an assignment to 'this', which covers instance properties assigned in
-            //       constructors or other methods.
-            boolean isNonNativeExtern =
-                t.getInput() != null && t.getInput().isExtern() && !ownerType.isNativeObjectType();
-            if (isNonNativeExtern || !ownerType.isInstanceType() || ownerNode.isThis()) {
-              // If the property is undeclared or inferred, declare it now.
-              ownerType.defineDeclaredProperty(propName, valueType, n);
-            }
-          }
+
+          // need ownernode - is it always just first child of n?
+          declarePropertyIfNamespaceType(t, ownerType, n, valueType);
         }
 
         // If the property is already declared, the error will be
@@ -2434,10 +2441,11 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
 
     /**
      * Handle typedefs.
+     *
      * @param candidate A qualified name node.
      * @param info JSDoc comments.
      */
-    void checkForTypedef(Node candidate, JSDocInfo info) {
+    void checkForTypedef(NodeTraversal t, Node candidate, JSDocInfo info) {
       if (info == null || !info.hasTypedefType()) {
         return;
       }
@@ -2460,6 +2468,8 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       JSType realType = info.getTypedefType().evaluate(currentScope, typeRegistry);
       if (realType == null) {
         report(JSError.make(candidate, MALFORMED_TYPEDEF, typedef));
+      } else {
+        candidate.setTypedefTypeProp(realType);
       }
 
       typeRegistry.overwriteDeclaredType(currentScope, typedef, realType);
@@ -2471,6 +2481,41 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
             .withType(getNativeType(NO_TYPE))
             .allowLaterTypeInference(false)
             .defineSlot();
+        Node definitionNode = getDefinitionNode(candidate.getFirstChild().getQualifiedNameObject());
+        if (definitionNode != null) {
+          ObjectType parent = ObjectType.cast(definitionNode.getJSType());
+          if (parent != null) {
+            JSType valueType = getNativeType(NO_TYPE);
+            declarePropertyIfNamespaceType(t, parent, candidate, valueType);
+          }
+        }
+      }
+    }
+
+    void declarePropertyIfNamespaceType(
+        NodeTraversal t, ObjectType ownerType, Node getpropNode, JSType valueType) {
+      checkState(getpropNode.isGetProp());
+      String propName = getpropNode.getLastChild().getString();
+      // Only declare this as an official property if it has not been
+      // declared yet.
+      if (ownerType.hasOwnProperty(propName) && !ownerType.isPropertyTypeInferred(propName)) {
+        return;
+      }
+      // Define the property if any of the following are true:
+      //   (1) it's a non-native extern type. Native types are excluded here because we don't
+      //       want externs of the form "/** @type {!Object} */ var api = {}; api.foo;" to
+      //       cause a property "foo" to be declared on Object.
+      //   (2) it's a non-instance type. This primarily covers static properties on
+      //       constructors (which are FunctionTypes, not InstanceTypes).
+      //   (3) it's an assignment to 'this', which covers instance properties assigned in
+      //       constructors or other methods.
+      boolean isNonNativeExtern =
+          t.getInput() != null && t.getInput().isExtern() && !ownerType.isNativeObjectType();
+      if (isNonNativeExtern
+          || !ownerType.isInstanceType()
+          || getpropNode.getFirstChild().isThis()) {
+        // If the property is undeclared or inferred, declare it now.
+        ownerType.defineDeclaredProperty(propName, valueType, getpropNode);
       }
     }
   } // end AbstractScopeBuilder
@@ -2544,7 +2589,7 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
           defineVars(n);
           // Handle typedefs.
           if (n.hasOneChild()) {
-            checkForTypedef(n.getFirstChild(), n.getJSDocInfo());
+            checkForTypedef(t, n.getFirstChild(), n.getJSDocInfo());
           }
           break;
 
@@ -2748,33 +2793,53 @@ final class TypedScopeCreator implements ScopeCreator, StaticSymbolTable<TypedVa
       }
     }
 
-    /** Declares all names inside a destructuring pattern in a parameter list in the scope */
+    /**
+     * Declares all names inside a destructuring pattern in a parameter list in the scope if we can
+     * find a non-unknown type for them.
+     *
+     * <p>Unknown typed parameters are always treated as inferred, not declared. TypeInference may
+     * later give them a better inferred type than unknown, but they will never become declared.
+     *
+     * <p>NOTE: currently, there are some less-than-ideal aspects to how we do this. If the pattern
+     * type is an unresolved NamedType, then we can't lookup properties on it (to find the
+     * individual parameter types) until after name resolution. The current state is to defer to
+     * TypeInference to type those parameters, with the drawback that they are 'inferred', not
+     * 'declared', and so any type can be assigned to them. In the future we will just enforce
+     * typing each parameter individually: <a
+     * href="https://github.com/google/closure-compiler/issues/1781">relevant issue</a>
+     */
     private void declareDestructuringParameter(
         boolean isInferred, Node pattern, JSType patternType) {
 
       for (DestructuredTarget target :
           DestructuredTarget.createAllNonEmptyTargetsInPattern(
               typeRegistry, patternType, pattern)) {
-        JSType inferredType = target.inferTypeWithoutUsingDefaultValue();
+        JSType parameterType = target.inferTypeWithoutUsingDefaultValue();
 
         if (target.getNode().isDestructuringPattern()) {
-          declareDestructuringParameter(isInferred, target.getNode(), inferredType);
+          declareDestructuringParameter(isInferred, target.getNode(), parameterType);
         } else {
           Node paramName = target.getNode();
           checkState(paramName.isName(), "Expected all parameters to be names, got %s", paramName);
 
-          if ((inferredType == null || inferredType.isUnknownType())
-              && paramName.getJSDocInfo() != null
-              && paramName.getJSDocInfo().hasType()) {
-            // see if the parameter has its own inline JSDoc
-            // TODO(b/112651122): this should happen inside FunctionTypeBuilder, so that we can
-            // check that calls to the function match the inline JSDoc.
-            inferredType =
-                typeRegistry.evaluateTypeExpression(
-                    paramName.getJSDocInfo().getType(), currentScope);
-            isInferred = false;
+          if (parameterType == null || parameterType.isUnknownType()) {
+            JSDocInfo paramJSDoc = paramName.getJSDocInfo();
+            if (paramJSDoc != null && paramJSDoc.hasType()) {
+              // see if the parameter has its own inline JSDoc, and use that unless we already have
+              // a type from @param JSDoc.
+              // TODO(b/112651122): this should happen inside FunctionTypeBuilder, so that we can
+              // check that calls to the function match the inline JSDoc.
+              // TODO(b/111523967): we should also report a
+              // warning if the inline and non-inline JSDoc conflict.
+              parameterType =
+                  typeRegistry.evaluateTypeExpression(paramJSDoc.getType(), currentScope);
+              isInferred = false;
+            } else {
+              // note - these parameters may get better types during TypeInference
+              isInferred = true;
+            }
           }
-          declareSingleParameterName(isInferred, paramName, inferredType);
+          declareSingleParameterName(isInferred, paramName, parameterType);
         }
       }
     }

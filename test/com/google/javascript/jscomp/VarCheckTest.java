@@ -283,6 +283,17 @@ public final class VarCheckTest extends CompilerTestCase {
   }
 
   @Test
+  public void testVarReferenceInExterns2() {
+    testSame(
+        externs("asdf;"),
+        srcs(
+            lines(
+                "(function() { var asdf; })()", //
+                "var /** @suppress {duplicate} */ asdf;")),
+        warning(VarCheck.NAME_REFERENCE_IN_EXTERNS_ERROR));
+  }
+
+  @Test
   public void testNamespaceDeclarationInExterns() {
     testSame(externs("/** @const */ var $jscomp = $jscomp || {};"), srcs(""));
   }
@@ -861,9 +872,7 @@ public final class VarCheckTest extends CompilerTestCase {
     CompilerOptions options = new CompilerOptions();
     CompilationLevel.ADVANCED_OPTIMIZATIONS.setOptionsForCompilationLevel(options);
     options.setLanguage(CompilerOptions.LanguageMode.ECMASCRIPT_2017);
-    options.dependencyOptions.setDependencyPruning(true);
-    options.dependencyOptions.setDependencySorting(true);
-    options.dependencyOptions.setEntryPoints(entryPoints);
+    options.setDependencyOptions(DependencyOptions.pruneLegacyForEntryPoints(entryPoints));
 
     List<SourceFile> externs =
         AbstractCommandLineRunner.getBuiltinExterns(options.getEnvironment());

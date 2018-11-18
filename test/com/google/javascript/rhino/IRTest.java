@@ -38,16 +38,18 @@
 
 package com.google.javascript.rhino;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-import junit.framework.TestCase;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /** @author johnlenz@google.com (John Lenz) */
 @RunWith(JUnit4.class)
-public class IRTest extends TestCase {
+public class IRTest {
   private static final Joiner LINE_JOINER = Joiner.on('\n');
 
   @Test
@@ -122,7 +124,7 @@ public class IRTest extends TestCase {
     } catch(IllegalStateException e) {
       caught = true;
     }
-    assertTrue("expected exception was not seen", caught);
+    assertWithMessage("expected exception was not seen").that(caught).isTrue();
   }
 
   @Test
@@ -255,6 +257,6 @@ public class IRTest extends TestCase {
   }
 
   private void testIR(Node node, String expectedStructure) {
-    assertEquals(expectedStructure, node.toStringTree());
+    assertThat(node.toStringTree()).isEqualTo(expectedStructure);
   }
 }

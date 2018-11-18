@@ -20,6 +20,8 @@ import static com.google.javascript.jscomp.DisambiguateProperties.Warnings.INVAL
 import static com.google.javascript.jscomp.DisambiguateProperties.Warnings.INVALIDATION_ON_TYPE;
 
 import com.google.common.collect.Multimap;
+import com.google.javascript.jscomp.CompilerOptions.LanguageMode;
+import com.google.javascript.jscomp.DisambiguateProperties.Warnings;
 import com.google.javascript.rhino.Node;
 import java.util.Collection;
 import java.util.HashMap;
@@ -33,7 +35,10 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /**
- * Unit test for the Compiler DisambiguateProperties pass.
+ * Unit test for the {@link DisambiguateProperties} pass.
+ *
+ * <p>This also runs the typechecking passes, because DisambiguateProperties depends on the
+ * typecheck passes behavior, and it's complicated to manually mimic the results of typechecking.
  *
  */
 
@@ -2709,6 +2714,515 @@ public final class DisambiguatePropertiesTest extends CompilerTestCase {
 
     // TODO(b/37673673): This should compile with no errors.
     test(srcs(js), error(INVALIDATION).withMessageContaining("foobar"));
+  }
+
+  /** Tests for ES6 classes */
+  @Test
+  public void testIgnoreEs6ComputedPropMethods() {
+    testSets(
+        lines(
+            "/** @dict */",
+            "class Foo {",
+            "  ['method']() {}",
+            "}",
+            "/** @dict */",
+            "class Bar {",
+            "  ['method']() {}",
+            "}"),
+        "{}");
+  }
+
+  @Test
+  public void testDisambiguateEs6ClassMethods() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  method() {}",
+            "}",
+            "class Bar {",
+            "  method() {}",
+            "}"),
+        lines(
+            "class Foo {",
+            "  Foo_prototype$method() {}",
+            "}",
+            "class Bar {",
+            "  Bar_prototype$method() {}",
+            "}"),
+        "{method=[[Bar.prototype], [Foo.prototype]]}");
+  }
+
+  @Test
+  public void testDisambiguateEs6ClassInstanceProperty_declaredInConstructor() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "class Bar {",
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 4;",
+            "  }",
+            "}"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "class Bar {",
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Bar$prop = 4;",
+            "  }",
+            "}"),
+        "{prop=[[Bar], [Foo]]}");
+  }
+
+  @Test
+  public void testEs6ClassMethods_emitInvalidationErrorAfterTypeMismatch() {
+    ignoreWarnings(TypeValidator.TYPE_MISMATCH_WARNING);
+    test(
+        srcs(
+            lines(
+                "class Foo {",
+                "  foobar() {}", // getProcessor() sets invalidation warnings for props named
+                // `foobar`
+                "}",
+                "class Bar {",
+                "  foobar() {}",
+                "}",
+                "const /** !Bar */ bar = new Foo();")),
+        error(INVALIDATION).withMessageContaining("Foo"));
+  }
+
+  @Test
+  public void testEs6ClassGetters_areDisambiguated() {
+    testSets(
+        lines(
+            "class Foo {",
+            "  get x() {}",
+            "}",
+            "class Bar {",
+            "  get x() {}",
+            "}",
+            "(new Foo()).x;",
+            "(new Bar()).x;"),
+        lines(
+            "class Foo {",
+            "  get Foo_prototype$x() {}",
+            "}",
+            "class Bar {",
+            "  get Bar_prototype$x() {}",
+            "}",
+            "(new Foo()).Foo_prototype$x;",
+            "(new Bar()).Bar_prototype$x;"),
+        "{x=[[Bar.prototype], [Foo.prototype]]}");
+  }
+
+  @Test
+  public void testEs6ClassGetterAndSetters_areDisambiguated() {
+    test(
+        lines(
+            "class Foo {",
+            "  get x() {}",
+            "  set x(y) {}",
+            "}",
+            "class Bar {",
+            "  get x() {}",
+            "  set x(y) {}",
+            "}",
+            "(new Foo()).x = (new Bar()).x;"),
+        lines(
+            "class Foo {",
+            "  get Foo_prototype$x() {}",
+            "  set Foo_prototype$x(y) {}",
+            "}",
+            "class Bar {",
+            "  get Bar_prototype$x() {}",
+            "  set Bar_prototype$x(y) {}",
+            "}",
+            "(new Foo()).Foo_prototype$x = (new Bar()).Bar_prototype$x;"));
+  }
+
+  @Test
+  public void testQuotedEs6ClassGetters_areNotDisambiguated() {
+    testSets(
+        lines(
+            "/** @dict */",
+            "class Foo {",
+            "  get 'x'() {}",
+            "}",
+            "class Bar {",
+            "  get x() {}",
+            "}",
+            "(new Foo())['x'];",
+            "(new Bar()).x;"),
+        "{x=[[Bar.prototype]]}");
+  }
+
+  @Test
+  public void testQuotedEs6ClassSetters_areNotDisambiguated() {
+    testSets(
+        lines(
+            "/** @dict */",
+            "class Foo {",
+            "  set 'x'(y) {}",
+            "}",
+            "class Bar {",
+            "  set x(y) {}",
+            "}",
+            "(new Foo())['x'];",
+            "(new Bar()).x;"),
+        "{x=[[Bar.prototype]]}");
+  }
+
+  @Test
+  public void testDisambiguateEs6ClassStaticMethods() {
+    test(
+        lines(
+            "class Foo {",
+            "  static method() {}",
+            "}",
+            "class Bar {",
+            "  static method() {}",
+            "}",
+            "Foo.method();",
+            "Bar.method();"),
+        lines(
+            "class Foo {",
+            "  function_new_Foo___undefined$method() {}",
+            "}",
+            "class Bar {",
+            "  function_new_Bar___undefined$method() {}",
+            "}",
+            "Foo.function_new_Foo___undefined$method();",
+            "Bar.function_new_Bar___undefined$method();"));
+  }
+
+  @Test
+  public void testEs6ClassSideInheritedMethods_areDisambiguated() {
+    test(
+        lines(
+            "class Foo {",
+            "  static method() {}",
+            "}",
+            "class SubFoo extends Foo {",
+            "  static method() {}", // this gets the same name as Foo.method
+            "}",
+            "class Bar {",
+            "  static method() {}",
+            "}",
+            "Foo.method();",
+            "SubFoo.method();",
+            "Bar.method();"),
+        lines(
+            "class Foo {",
+            "  function_new_Foo___undefined$method() {}",
+            "}",
+            "class SubFoo extends Foo {",
+            "  static function_new_Foo___undefined$method() {}",
+            "}",
+            "class Bar {",
+            "  function_new_Bar___undefined$method() {}",
+            "}",
+            "Foo.function_new_Foo___undefined$method();",
+            "SubFoo.function_new_Foo___undefined$method();",
+            "Bar.function_new_Bar___undefined$method();"));
+  }
+
+  @Test
+  public void testEs6ClassSideInheritedMethods_referencedWithThis_areDisambiguated() {
+    // TODO(b/117437011): compiler should disambiguate `method` but can't because `this` is unknown
+    // in static methods
+    testSame(
+        lines(
+            "class Foo {",
+            "  static method() {}",
+            "  static useMethod() {",
+            "    this.method();", // this could refer to either Foo.method or SubFoo.method
+            "  }",
+            "}",
+            "class SubFoo extends Foo {",
+            "  static method() {}",
+            "}",
+            "class Bar {",
+            "  static method() {}",
+            "}",
+            "SubFoo.useMethod();",
+            "Foo.method();",
+            "SubFoo.method();",
+            "Bar.method();"));
+  }
+
+  @Test
+  public void testEs6ClassSideInheritedMethods_referencedWithSuper_areDisambiguated() {
+    test(
+        lines(
+            "class Foo {",
+            "  static method() {}",
+            "}",
+            "class SubFoo extends Foo {",
+            "  static method2() {",
+            "    super.method();",
+            "  }",
+            "}",
+            "class Bar {",
+            "  static method() {}",
+            "}",
+            "Foo.method();",
+            "Bar.method();"),
+        lines(
+            "class Foo {",
+            "  static function_new_Foo___undefined$method() {}",
+            "}",
+            "class SubFoo extends Foo {",
+            "  static method2() {",
+            "    super.function_new_Foo___undefined$method();",
+            "  }",
+            "}",
+            "class Bar {",
+            "  static function_new_Bar___undefined$method() {}",
+            "}",
+            "Foo.function_new_Foo___undefined$method();",
+            "Bar.function_new_Bar___undefined$method();"));
+  }
+
+  /** Tests for ES6 object literal features */
+  @Test
+  public void testIgnoreComputedPropertyInObjectLiteral() {
+    testSets(
+        lines(
+            "var x = {['a']: 1, b: 2}; ",
+            "/** @constructor */ function Foo() {} ",
+            "Foo.prototype.a = 3;",
+            "Foo.prototype.b = 5;"),
+        // Only 'a' is included in the output sets, because disambiguating 'b' is blocked by the
+        // reference in the object literal.
+        "{a=[[Foo.prototype]]}");
+  }
+
+  @Test
+  public void testMemberDefinitionInObjectLiteral_blocksRenaming() {
+    testSets(
+        lines(
+            "var x = {a() {}}; ", //
+            "/** @constructor */ function Foo() {} ",
+            "Foo.prototype.a = 5;"),
+        "{}");
+  }
+
+  @Test
+  public void testQuotedMemberDefinitionInObjectLiteral_doesNotBlockRenaming() {
+    testSets(
+        lines(
+            "var x = {'a'() {}}; ",
+            "/** @constructor */ function Foo() {} ",
+            "Foo.prototype.a = 5;"),
+        "{a=[[Foo.prototype]]}");
+  }
+
+  @Test
+  public void testDisambiguateEs6ClassMethods_doesntDisambiguateOrCrashOnClassInACast() {
+    testSets(
+        lines(
+            "const Foo = /** @type {?} */ (class {", //
+            "  method() {}",
+            "});",
+            "class Bar {",
+            "  method() {}",
+            "}"),
+        "{}");
+  }
+
+  /** Tests for destructuring */
+  @Test
+  public void testDisambiguatePropertyReference_objectPattern_stringKey_inDeclaration() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const {prop} = (new Foo());"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.function_new_Foo___undefined$prop = 'static property!';",
+            "const {Foo$prop: prop} = (new Foo());"),
+        "{prop=[[Foo], [function(new:Foo): undefined]]}");
+  }
+
+  @Test
+  public void testDisambiguateCtorPropertyReference_objectPattern_stringKey_inDeclaration() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const {prop} = Foo;"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.function_new_Foo___undefined$prop = 'static property!';",
+            "const {function_new_Foo___undefined$prop: prop} = Foo;"),
+        "{prop=[[Foo], [function(new:Foo): undefined]]}");
+  }
+
+  @Test
+  public void testDisambiguatePropertyReference_objectPattern_stringKey_withDefaultValue() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @type {number|undefined} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const {prop = 0} = (new Foo());"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @type {number|undefined} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.function_new_Foo___undefined$prop = 'static property!';",
+            "const {Foo$prop: prop = 0} = (new Foo());"),
+        "{prop=[[Foo], [function(new:Foo): undefined]]}");
+  }
+
+  @Test
+  public void testDisambiguatePropertyReference_objectPattern_stringKey_inParameter() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const fn = (/** !Foo */ {prop}) => prop;"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.function_new_Foo___undefined$prop = 'static property!';",
+            "const fn = (/** !Foo */ {Foo$prop: prop}) => prop;"),
+        "{prop=[[Foo], [function(new:Foo): undefined]]}");
+  }
+
+  @Test
+  public void testDisambiguatePropertyReference_objectPattern_stringKey_inNestedPattern() {
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const {f: {prop}} = {f: new Foo()};"),
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.Foo$prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.function_new_Foo___undefined$prop = 'static property!';",
+            "const {f: {Foo$prop: prop}} = {f: new Foo()};"),
+        "{prop=[[Foo], [function(new:Foo): undefined]]}");
+  }
+
+  @Test
+  public void testPropertyReference_leftFromObjectPatternRest_blocksDisambiguation() {
+    setAcceptedLanguage(LanguageMode.ECMASCRIPT_2018);
+    testSets(
+        lines(
+            "class Foo {", //
+            "  constructor() {",
+            "    /** @const {number} */",
+            "    this.prop = 3;",
+            "  }",
+            "}",
+            "/** @type {string} */",
+            "Foo.prop = 'static property!';",
+            "const {...rest} = (new Foo());",
+            "alert(rest.prop);"),
+        "{}");
+  }
+
+  @Test
+  public void testObjectPattern_withTypeMismatch_emitsInvalidationError_aboutType() {
+    testError(
+        srcs(
+            lines(
+                "class Foo {", //
+                "  constructor() {",
+                "    /** @const {number} */",
+                "    this.foobar = 3;",
+                "  }",
+                "}",
+                "/** @type {string} */",
+                "Foo.foobar = 'static property!';",
+                // cause a type mismatch warning on Foo, preventing disambiguation
+                "const /** !Foo */ foo = {};")),
+        error(Warnings.INVALIDATION).withMessageContaining("Foo"));
+  }
+
+  @Test
+  public void testObjectPattern_withUnknownType_stringKey_emitsInvalidationError_aboutName() {
+    testError(
+        srcs(
+            lines(
+                "class Foo {", //
+                "  constructor() {",
+                "    /** @const {number} */",
+                "    this.foobar = 3;",
+                "  }",
+                "}",
+                "/** @type {string} */",
+                "Foo.foobar = 'static property!';",
+                // because unknownName is of the unknown type '?', we can't disambiguate foobar
+                "const {foobar: someRandomName} = unknownName;")),
+        error(Warnings.INVALIDATION).withMessageContaining("someRandomName"));
   }
 
   private void testSets(String js, String expected, final String fieldTypes) {

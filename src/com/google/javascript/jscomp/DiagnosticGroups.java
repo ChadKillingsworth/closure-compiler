@@ -204,10 +204,11 @@ public class DiagnosticGroups {
       DiagnosticGroups.registerGroup("accessControls", VISIBILITY);
 
   public static final DiagnosticGroup NON_STANDARD_JSDOC =
-      DiagnosticGroups.registerGroup("nonStandardJsDocs",
+      DiagnosticGroups.registerGroup(
+          "nonStandardJsDocs",
           RhinoErrorReporter.BAD_JSDOC_ANNOTATION,
           RhinoErrorReporter.INVALID_PARAM,
-          RhinoErrorReporter.JSDOC_IN_BLOCK_COMMENT);
+          CheckJSDoc.JSDOC_IN_BLOCK_COMMENT);
 
   public static final DiagnosticGroup INVALID_CASTS =
       DiagnosticGroups.registerGroup("invalidCasts",
@@ -584,6 +585,7 @@ public class DiagnosticGroups {
               CheckInterfaces.INTERFACE_SHOULD_NOT_TAKE_ARGS,
               CheckMissingSemicolon.MISSING_SEMICOLON,
               CheckNullabilityModifiers.MISSING_NULLABILITY_MODIFIER_JSDOC,
+              CheckNullabilityModifiers.NULL_MISSING_NULLABILITY_MODIFIER_JSDOC,
               CheckNullabilityModifiers.REDUNDANT_NULLABILITY_MODIFIER_JSDOC,
               CheckPrimitiveAsObject.NEW_PRIMITIVE_OBJECT,
               CheckPrimitiveAsObject.PRIMITIVE_OBJECT_DECLARATION,

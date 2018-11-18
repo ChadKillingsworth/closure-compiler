@@ -290,9 +290,8 @@ class DevirtualizePrototypeMethods implements CompilerPass {
       // definition module prevents rewrite; accessing a variable
       // before definition results in a parse error.
       JSModule callModule = site.module;
-      if ((definitionModule != callModule) &&
-          ((callModule == null) ||
-          !moduleGraph.dependsOn(callModule, definitionModule))) {
+      if ((definitionModule != callModule)
+          && ((callModule == null) || !moduleGraph.dependsOn(callModule, definitionModule))) {
         return false;
       }
     }

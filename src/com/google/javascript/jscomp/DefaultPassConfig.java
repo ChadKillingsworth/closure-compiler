@@ -240,6 +240,8 @@ public final class DefaultPassConfig extends PassConfig {
   protected List<PassFactory> getChecks() {
     List<PassFactory> checks = new ArrayList<>();
 
+    checks.add(gatherGettersAndSetters);
+
     if (options.shouldGenerateTypedExterns()) {
       checks.add(closureGoogScopeAliases);
       checks.add(closureRewriteClass);
@@ -2277,28 +2279,31 @@ public final class DefaultPassConfig extends PassConfig {
       };
 
   /** Replace strings. */
-  private final PassFactory replaceStrings = new PassFactory("replaceStrings", true) {
-    @Override
-    protected CompilerPass create(final AbstractCompiler compiler) {
-      return new CompilerPass() {
-        @Override public void process(Node externs, Node root) {
-          ReplaceStrings pass = new ReplaceStrings(
-              compiler,
-              options.replaceStringsPlaceholderToken,
-              options.replaceStringsFunctionDescriptions,
-              options.replaceStringsReservedStrings,
-              options.replaceStringsInputMap);
-          pass.process(externs, root);
-          compiler.setStringMap(pass.getStringMap());
+  private final PassFactory replaceStrings =
+      new PassFactory("replaceStrings", true) {
+        @Override
+        protected CompilerPass create(final AbstractCompiler compiler) {
+          return new CompilerPass() {
+            @Override
+            public void process(Node externs, Node root) {
+              ReplaceStrings pass =
+                  new ReplaceStrings(
+                      compiler,
+                      options.replaceStringsPlaceholderToken,
+                      options.replaceStringsFunctionDescriptions,
+                      options.replaceStringsReservedStrings,
+                      options.replaceStringsInputMap);
+              pass.process(externs, root);
+              compiler.setStringMap(pass.getStringMap());
+            }
+          };
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES8_MODULES;
         }
       };
-    }
-
-    @Override
-    protected FeatureSet featureSet() {
-      return ES5;
-    }
-  };
 
   /** Optimizes the "arguments" array. */
   private final PassFactory optimizeArgumentsArray =
@@ -3453,6 +3458,19 @@ public final class DefaultPassConfig extends PassConfig {
         protected CompilerPass create(AbstractCompiler compiler) {
           return new GatherModuleMetadata(
               compiler, options.processCommonJSModules, options.moduleResolutionMode);
+        }
+
+        @Override
+        protected FeatureSet featureSet() {
+          return ES_NEXT;
+        }
+      };
+
+  private final PassFactory gatherGettersAndSetters =
+      new PassFactory(PassNames.GATHER_GETTERS_AND_SETTERS, /* isOneTimePass= */ true) {
+        @Override
+        protected CompilerPass create(AbstractCompiler compiler) {
+          return new GatherGettersAndSetterProperties(compiler);
         }
 
         @Override

@@ -35,6 +35,20 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   }
 
   @Test
+  public void testCorrectSubtyping_ofRecursiveTemplateType() {
+    testTypes(
+        lines(
+            "/** @template T */", //
+            "class Base { }",
+            "",
+            "/** @extends {Base<!Child>} */",
+            "class Child extends Base { }",
+            "",
+            // Confirm that `Child` is seen as a subtype of `Base<Child>`.
+            "const /** !Base<!Child> */ x = new Child();"));
+  }
+
+  @Test
   public void testArrowInferredReturn() {
     // TODO(johnlenz): infer simple functions return results.
 
@@ -202,23 +216,47 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   }
 
   @Test
-  public void testAsyncArrowWithCorrectBlocklessReturn() {
-    testTypes(
+  public void testAsyncArrow_withValidBlocklessReturn_isAllowed() {
+    testTypesWithCommonExterns(
         lines(
-            "function takesPromiseProvider(/** function(): !Promise<number> */ getPromise) {}",
+            "function takesPromiseProvider(/** function():!Promise<number> */ getPromise) {}",
             "takesPromiseProvider(async () => 1);"));
   }
 
   @Test
-  public void testAsyncArrowWithIncorrectBlocklessReturn() {
-    testTypes(
+  public void testAsyncArrow_withInvalidBlocklessReturn_isError() {
+    testTypesWithCommonExterns(
         lines(
-            "function takesPromiseProvider(/** function(): ?Promise<string> */ getPromise) {}",
+            "function takesPromiseProvider(/** function():!Promise<string> */ getPromise) {}",
             "takesPromiseProvider(async () => 1);"),
         lines(
             "inconsistent return type", // preserve newline
             "found   : number",
-            "required: string"));
+            "required: (IThenable<string>|string)"));
+  }
+
+  @Test
+  public void testAsyncArrow_withInferredReturnType_ofValidUnionType_isAllowed() {
+    testTypesWithCommonExterns(
+        lines(
+            "/** @param {function():(number|!Promise<string>)} getPromise */",
+            "function takesPromiseProvider(getPromise) {}",
+            "",
+            "takesPromiseProvider(async () => '');"));
+  }
+
+  @Test
+  public void testAsyncArrow_withInferredReturnType_ofInvalidUnionType_isError() {
+    testTypesWithCommonExterns(
+        lines(
+            "/** @param {function():(number|!Promise<string>)} getPromise */",
+            "function takesPromiseProvider(getPromise) {}",
+            "",
+            "takesPromiseProvider(async () => true);"),
+        lines(
+            "inconsistent return type", // preserve newline
+            "found   : boolean",
+            "required: (IThenable<string>|string)"));
   }
 
   @Test
@@ -713,8 +751,8 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   }
 
   @Test
-  public void testTypedefAlias() {
-    // Ensure that the type of a variable representing a typedef is "undefined"
+  public void testTypedefAliasValueTypeIsUndefined() {
+    // Aliasing a typedef (const Alias = SomeTypedef) should be interchangeable with the original.
     testTypes(
         lines(
             "/** @typedef {number} */", // preserve newlines
@@ -727,6 +765,179 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
             "invalid cast - must be a subtype or supertype", // preserve newlines
             "from: undefined",
             "to  : string"));
+  }
+
+  @Test
+  public void testTypedefAliasOfLocalTypedef() {
+    // Aliasing should work on local typedefs as well as global.
+    testTypes(
+        lines(
+            "function f() {",
+            "  /** @typedef {number} */",
+            "  var MyNumber;",
+            "  /** @const */",
+            "  var Alias = MyNumber;",
+            "  /** @type {Alias} */",
+            "  var x = 'x';",
+            "}"),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: number"));
+  }
+
+  @Test
+  public void testTypedefDestructuredAlias() {
+    // Aliasing should work on local typedefs as well as global.
+    testTypes(
+        lines(
+            "function f() {",
+            "  const ns = {};",
+            "  /** @typedef {number} */",
+            "  ns.MyNumber;",
+            "  const {MyNumber: Alias} = ns;",
+            "  /** @type {Alias} */",
+            "  var x = 'x';",
+            "}"),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: number"));
+  }
+
+  @Test
+  public void testTypedefDestructuredAlias_deeplyNested() {
+    // Aliasing should work on local typedefs as well as global.
+    testTypes(
+        lines(
+            "function f() {",
+            "  const outer = {};",
+            "  /** @const */",
+            "  outer.inner = {};",
+            "  /** @typedef {number} */",
+            "  outer.inner.MyNumber;",
+            "  const alias = {};",
+            "  ({inner: /** @const */ alias.ns} = outer);",
+            "  /** @type {alias.ns.MyNumber} */",
+            "  var x = 'x';",
+            "}"),
+        // TODO(sdh): Should parse correctly and give an initializing variable error.
+        // It looks like this is a result of the `const` being ignored.
+        "Bad type annotation. Unknown type alias.ns.MyNumber");
+  }
+
+  @Test
+  public void testTypedefLocalQualifiedName() {
+    // Aliasing should work on local typedefs as well as global.
+    testTypes(
+        lines(
+            "function f() {",
+            "  /** @const */",
+            "  var ns = {};",
+            "  /** @typedef {number} */",
+            "  ns.MyNumber;",
+            "  /** @type {ns.MyNumber} */",
+            "  var x = 'x';",
+            "}"),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: number"));
+  }
+
+  @Test
+  public void testTypedefLocalQualifiedNameAlias() {
+    // Aliasing should work on local typedefs as well as global.
+    testTypes(
+        lines(
+            "function f() {",
+            "  /** @typedef {number} */",
+            "  var MyNumber;",
+            "  /** @const */",
+            "  var ns = {};",
+            "  /** @const */",
+            "  ns.MyNumber = MyNumber;",
+            "  /** @type {ns.MyNumber} */",
+            "  var x = 'x';",
+            "}"),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: number"));
+  }
+
+  @Test
+  public void testTypedefLocalAliasOfGlobalTypedef() {
+    // Should also work if the alias is local but the typedef is global.
+    testTypes(
+        lines(
+            "/** @typedef {number} */",
+            "var MyNumber;",
+            "function f() {",
+            "  /** @const */ var Alias = MyNumber;",
+            "  var /** Alias */ x = 'x';",
+            "}"),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: number"));
+  }
+
+  @Test
+  public void testTypedefOnAliasedNamespace() {
+    // Aliasing a namespace (const alias = ns) should carry over any typedefs on the namespace.
+    testTypes(
+        lines(
+            "const ns = {};",
+            "/** @const */ ns.bar = 'x';",
+            "/** @typedef {number} */", // preserve newlines
+            "ns.MyNumber;",
+            "const alias = ns;",
+            "/** @const */ alias.foo = 42",
+            "/** @type {alias.MyNumber} */ const x = 'str';",
+            ""),
+        // TODO(sdh): should be non-nullable number, but we get nullability wrong.
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: (null|number)"));
+  }
+
+  @Test
+  public void testTypedefOnLocalAliasedNamespace() {
+    // Aliasing a namespace (const alias = ns) should carry over any typedefs on the namespace.
+    testTypes(
+        lines(
+            "function f() {",
+            "  const ns = {};",
+            "  /** @typedef {number} */", // preserve newlines
+            "  ns.MyNumber;",
+            "  const alias = ns;",
+            "  /** @const */ alias.foo = 42",
+            "  /** @type {alias.MyNumber} */ const x = 'str';",
+            "}"),
+        // TODO(sdh): should be non-nullable number, but we get nullability wrong.
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: (null|number)"));
+  }
+
+  @Test
+  public void testTypedefOnClassSideInheritedSubtype() {
+    // Class-side inheritance should carry over any typedefs nested on the class.
+    testTypes(
+        lines(
+            "class Base {}",
+            "/** @typedef {number} */", // preserve newlines
+            "Base.MyNumber;",
+            "class Sub extends Base {}",
+            "/** @type {Sub.MyNumber} */ const x = 'str';",
+            ""),
+        lines(
+            "initializing variable", // preserve newlines
+            "found   : string",
+            "required: (null|number)"));
   }
 
   @Test
@@ -4045,38 +4256,35 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   }
 
   @Test
-  public void testAsyncFunctionCannotReturnNumber() {
-    testTypes(
+  public void testAsyncFunction_cannotDeclareReturnToBe_Number() {
+    testTypesWithCommonExterns(
         "/** @return {number} */ async function f() {}",
         lines(
-            "An async function must return a (supertype of) Promise",
-            "found   : number",
-            "required: IThenable"));
+            "The return type of an async function must be a supertype of Promise",
+            "found: number"));
   }
 
   @Test
-  public void testAsyncFunctionCannotReturnArray() {
-    testTypes(
+  public void testAsyncFunction_cannotDeclareReturnToBe_Array() {
+    testTypesWithCommonExterns(
         "/** @return {!Array} */ async function f() {}",
         lines(
-            "An async function must return a (supertype of) Promise",
-            "found   : Array",
-            "required: IThenable"));
+            "The return type of an async function must be a supertype of Promise", "found: Array"));
   }
 
   @Test
-  public void testAsyncFunctionCanReturnObject() {
-    testTypes("/** @return {!Object} */ async function f() {}");
+  public void testAsyncFunction_canDeclareReturnToBe_Object_andAccepts_undefined() {
+    testTypesWithCommonExterns("/** @return {!Object} */ async function f() { return undefined; }");
   }
 
   @Test
-  public void testAsyncFunctionCanReturnAllType() {
-    testTypes("/** @return {*} */ async function f() {}");
+  public void testAsyncFunction_canDeclareReturnToBe_allType_andAccepts_undefined() {
+    testTypesWithCommonExterns("/** @return {*} */ async function f() { return undefined; }");
   }
 
   @Test
   public void testAsyncReturnsPromise1() {
-    testTypes(
+    testTypesWithCommonExterns(
         lines(
             "/** @return {!Promise<number>} */",
             "async function getANumber() {",
@@ -4086,7 +4294,7 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
 
   @Test
   public void testAsyncReturnsPromise2() {
-    testTypes(
+    testTypesWithCommonExterns(
         lines(
             "/** @return {!Promise<string>} */",
             "async function getAString() {",
@@ -4095,41 +4303,67 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
         lines(
             "inconsistent return type", // preserve newline
             "found   : number",
-            "required: string"));
+            "required: (IThenable<string>|string)"));
   }
 
   @Test
-  public void testAsyncCanReturnNullablePromise() {
-    // TODO(lharker): don't allow async functions to return null.
-    testTypes(
+  public void testAsyncFunction_canDeclareReturnToBe_nullablePromise() {
+    testTypesWithCommonExterns(
         lines(
             "/** @return {?Promise<string>} */",
             "async function getAString() {",
-            "  return 1;",
-            "}"),
-        lines(
-            "inconsistent return type", // preserve newline
-            "found   : number",
-            "required: string"));
+            "  return '';",
+            "}"));
   }
 
   @Test
-  public void testAsyncCannotReturnUnionOfPromiseAndNumber() {
-    testTypes(
+  public void testAsyncFunction_canDeclareReturnToBe_unionOfPromiseAndNumber() {
+    testTypesWithCommonExterns(
         lines(
-            "/** @return {(number|!Promise<string>)} */",
+            "/** @return {(number|!Promise<number>)} */",
             "async function getAString() {",
             "  return 1;",
-            "}"),
-        lines(
-            "An async function must return a (supertype of) Promise",
-            "found   : (Promise<string>|number)",
-            "required: IThenable"));
+            "}"));
   }
 
   @Test
-  public void testAsyncCanReturnIThenable1() {
-    testTypes(
+  public void testAsyncFunction_cannotDeclareReturnToBe_aSubtypeOfPromise() {
+    testTypesWithCommonExterns(
+        lines(
+            "/** @extends {Promise<string>} */",
+            "class MyPromise extends Promise { }",
+            "",
+            "/** @return {!MyPromise} */",
+            "async function getAString() {",
+            "  return '';",
+            "}"),
+        lines(
+            "The return type of an async function must be a supertype of Promise",
+            "found: MyPromise"));
+  }
+
+  @Test
+  public void testAsyncFunction_cannotDeclareReturnToBe_aSiblingOfPromise() {
+    testTypesWithCommonExterns(
+        lines(
+            "/**",
+            " * @interface",
+            " * @extends {IThenable<string>}",
+            " */",
+            "class MyThenable { }",
+            "",
+            "/** @return {!MyThenable} */",
+            "async function getAString() {",
+            "  return '';",
+            "}"),
+        lines(
+            "The return type of an async function must be a supertype of Promise",
+            "found: MyThenable"));
+  }
+
+  @Test
+  public void testAsyncFunction_canDeclareReturnToBe_IThenable1() {
+    testTypesWithCommonExterns(
         lines(
             "/** @return {!IThenable<string>} */",
             "async function getAString() {",
@@ -4138,14 +4372,29 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
         lines(
             "inconsistent return type", //
             "found   : number",
-            "required: string"));
+            "required: (IThenable<string>|string)"));
+  }
+
+  @Test
+  public void testAsyncFunction_checksReturnExpressionType_againstCorrectUpperBound() {
+    testTypesWithCommonExterns(
+        lines(
+            "/** @return {string|!IThenable<boolean|undefined>|!Promise<null>} */",
+            "async function getAString() {",
+            "  return {};",
+            "}"),
+        lines(
+            "inconsistent return type", //
+            "found   : {}",
+            // We're specifically checking this type.
+            "required: (IThenable<(boolean|null|undefined)>|boolean|null|undefined)"));
   }
 
   @Test
   public void testAsyncReturnStatementIsResolved() {
     // Test that we correctly handle resolving an "IThenable" return statement inside an async
     // function.
-    testTypes(
+    testTypesWithCommonExterns(
         lines(
             "/** @return {!IThenable<string>} */",
             "async function getAString(/** !IThenable<number> */ iThenable) {",
@@ -4153,8 +4402,8 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
             "}"),
         lines(
             "inconsistent return type", // preserve newline
-            "found   : number",
-            "required: string"));
+            "found   : IThenable<number>",
+            "required: (IThenable<string>|string)"));
   }
 
   @Test
@@ -5176,8 +5425,9 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   public void testTypeNameAliasOnAliasedNamespace() {
     testTypes(
         lines(
-            "class Foo {};",
-            "/** @enum {number} */ Foo.E = {A: 1};",
+            "class Foo {}",
+            "/** @enum {number} */",
+            "Foo.E = {A: 1};",
             "const F = Foo;",
             "const E = F.E;",
             "/** @type {E} */ let e = undefined;"),
@@ -5192,19 +5442,23 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
   public void testTypedefNameAliasOnAliasedNamespace() {
     testTypes(
         lines(
-            "class Foo {};",
-            "/** @typedef {number|string} */ Foo.E;",
+            "class Foo {}",
+            "/** @typedef {number|string} */",
+            "Foo.E;",
             "const F = Foo;",
             "const E = F.E;",
             "/** @type {E} */ let e = undefined;"),
-        lines("Bad type annotation. Unknown type E"));
+        lines(
+            "initializing variable", //
+            "found   : undefined",
+            "required: (number|string)"));
   }
 
   @Test
   public void testTypeNameAliasOnAliasedClassSideNamespace() {
     testTypes(
         lines(
-            "class Foo {};",
+            "class Foo {}",
             "/** @enum {number} */ Foo.E = {A: 1};",
             "class Bar extends Foo {};",
             "const B = Bar;",
@@ -5215,5 +5469,37 @@ public final class TypeCheckNoTranspileTest extends TypeCheckTestCase {
             "found   : undefined",
             // TODO(johnlenz): this should not be nullable
             "required: (Foo.E<number>|null)"));
+  }
+
+  @Test
+  public void testTypedefInExtern() {
+    testTypesWithExtraExterns(
+        "/** @typedef {boolean} */ var ConstrainBoolean;",
+        "var /** ConstrainBoolean */ x = 42;",
+        lines(
+            "initializing variable", //
+            "found   : number",
+            "required: boolean"));
+  }
+
+  @Test
+  public void testDeeplyNestedAliases() {
+    testTypes(
+        lines(
+            "const ns = {};",
+            "/** @typedef {number} */",
+            "ns.MyNumber;",
+            "const alias = {};",
+            "/** @const */",
+            "alias.child = ns;",
+            "const outer = {};",
+            "/** @const */",
+            "outer.inner = alias;",
+            "const /** outer.inner.child.MyNumber */ x = '';"),
+        lines(
+            "initializing variable",
+            "found   : string",
+            // TODO(sdh): this should not be nullable
+            "required: (null|number)"));
   }
 }

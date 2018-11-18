@@ -412,6 +412,18 @@ public abstract class JSType implements Serializable {
     return null;
   }
 
+  /** Returns this object cast to FunctionType or throws an exception if it isn't a FunctionType. */
+  public FunctionType assertFunctionType() {
+    FunctionType result = checkNotNull(toMaybeFunctionType(), "not a FunctionType: %s", this);
+    return result;
+  }
+
+  /** Returns this object cast to ObjectType or throws an exception if it isn't an ObjectType. */
+  public ObjectType assertObjectType() {
+    ObjectType result = checkNotNull(toMaybeObjectType(), "Not an ObjectType: %s", this);
+    return result;
+  }
+
   /** Null-safe version of toMaybeFunctionType(). */
   @SuppressWarnings("AmbiguousMethodReference")
   public static FunctionType toMaybeFunctionType(JSType type) {
@@ -1852,7 +1864,7 @@ public abstract class JSType implements Serializable {
    * cache used by equivalence check logic
    */
   static class EqCache extends MatchCache {
-    private IdentityHashMap<JSType, IdentityHashMap<JSType, MatchStatus>> matchCache;
+    private IdentityHashMap<Object, IdentityHashMap<Object, MatchStatus>> matchCache;
 
     static EqCache create() {
       return new EqCache(true);
@@ -1867,8 +1879,16 @@ public abstract class JSType implements Serializable {
       this.matchCache = null;
     }
 
-    void updateCache(JSType t1, JSType t2, MatchStatus isMatch) {
-      IdentityHashMap<JSType, MatchStatus> map = this.matchCache.get(t1);
+    void updateCache(JSType left, JSType right, MatchStatus isMatch) {
+      updateCacheAnyType(left, right, isMatch);
+    }
+
+    void updateCache(TemplateTypeMap left, TemplateTypeMap right, MatchStatus isMatch) {
+      updateCacheAnyType(left, right, isMatch);
+    }
+
+    private void updateCacheAnyType(Object t1, Object t2, MatchStatus isMatch) {
+      IdentityHashMap<Object, MatchStatus> map = this.matchCache.get(t1);
       if (map == null) {
         map = new IdentityHashMap<>();
       }
@@ -1876,7 +1896,17 @@ public abstract class JSType implements Serializable {
       this.matchCache.put(t1, map);
     }
 
-    MatchStatus checkCache(JSType t1, JSType t2) {
+    @Nullable
+    MatchStatus checkCache(JSType left, JSType right) {
+      return checkCacheAnyType(left, right);
+    }
+
+    @Nullable
+    MatchStatus checkCache(TemplateTypeMap left, TemplateTypeMap right) {
+      return checkCacheAnyType(left, right);
+    }
+
+    private MatchStatus checkCacheAnyType(Object t1, Object t2) {
       if (this.matchCache == null) {
         this.matchCache = new IdentityHashMap<>();
       }
@@ -1886,7 +1916,7 @@ public abstract class JSType implements Serializable {
       } else if (this.matchCache.containsKey(t2) && this.matchCache.get(t2).containsKey(t1)) {
         return this.matchCache.get(t2).get(t1);
       } else {
-        this.updateCache(t1, t2, MatchStatus.PROCESSING);
+        this.updateCacheAnyType(t1, t2, MatchStatus.PROCESSING);
         return null;
       }
     }

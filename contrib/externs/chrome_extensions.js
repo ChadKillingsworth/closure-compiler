@@ -2152,6 +2152,32 @@ chrome.enterprise.deviceAttributes.getDirectoryDeviceId = function(callback) {};
 
 
 /**
+ * @param {function(string): void} callback Called with the serial number of the
+ *     device.
+ * @return {undefined}
+ */
+chrome.enterprise.deviceAttributes.getDeviceSerialNumber = function(
+    callback) {};
+
+
+/**
+ * @param {function(string): void} callback Called with the Asset ID of the
+ *     device.
+ * @return {undefined}
+ */
+chrome.enterprise.deviceAttributes.getDeviceAssetId = function(callback) {};
+
+
+/**
+ * @param {function(string): void} callback Called with the Annotated Location
+ *     of the device.
+ * @return {undefined}
+ */
+chrome.enterprise.deviceAttributes.getDeviceAnnotatedLocation = function(
+    callback) {};
+
+
+/**
  * @constructor
  * platformKeys allows for generating hardware-backed keys and the installation
  * of certificates for these keys.
@@ -2514,9 +2540,11 @@ chrome.runtime.reload = function() {};
 
 
 /**
- * @param {function(string, !Object=): void} callback Called with "throttled",
- *     "no_update", or "update_available". If an update is available, the object
- *     contains more information about the available update.
+ * @see https://developer.chrome.com/apps/runtime#method-requestUpdateCheck
+ * @param {function(string, !{version: string}=): void} callback Called with
+ *     "throttled", "no_update", or "update_available". If an update is
+ *     available, the object contains more information about the available
+ *     update.
  * @return {undefined}
  */
 chrome.runtime.requestUpdateCheck = function(callback) {};
@@ -6235,7 +6263,39 @@ chrome.system.cpu = {};
 
 
 /**
- * @param {function(!Object)} callback
+ * @typedef {?{
+ *   user: number,
+ *   kernel: number,
+ *   idle: number,
+ *   total: number,
+ * }}
+ */
+chrome.system.cpu.CpuTime;
+
+
+/**
+ * @typedef {?{
+ *   usage: !chrome.system.cpu.CpuTime,
+ * }}
+ */
+chrome.system.cpu.ProcessorInfo;
+
+
+/**
+ * @typedef {?{
+ *   numOfProcessors: number,
+ *   archName: string,
+ *   modelName: string,
+ *   features: !Array<string>,
+ *   processors: !Array<!chrome.system.cpu.ProcessorInfo>,
+ *   temperatures: !Array<number>,
+ * }}
+ */
+chrome.system.cpu.CpuInfo;
+
+
+/**
+ * @param {function(!chrome.system.cpu.CpuInfo)} callback
  * @return {undefined}
  */
 chrome.system.cpu.getInfo = function(callback) {};

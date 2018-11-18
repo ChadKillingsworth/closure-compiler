@@ -3277,7 +3277,7 @@ public final class NodeUtil {
    * @param parent Parent of the node
    * @return True if n is the left hand of an assign
    */
-  static boolean isNameDeclOrSimpleAssignLhs(Node n, Node parent) {
+  public static boolean isNameDeclOrSimpleAssignLhs(Node n, Node parent) {
     return
         (parent.isAssign() && parent.getFirstChild() == n) || NodeUtil.isNameDeclaration(parent);
   }
@@ -4337,13 +4337,18 @@ public final class NodeUtil {
     }
   }
 
-  /**
-   * @return {@code true} if the node is a definition with Object.defineProperty
-   */
+  /** Returns {@code true} if the node is a definition with Object.defineProperty. */
   static boolean isObjectDefinePropertyDefinition(Node n) {
-    return n.isCall()
-        && n.hasXChildren(4)
-        && n.getFirstChild().matchesQualifiedName("Object.defineProperty");
+    if (!n.isCall() || !n.hasXChildren(4)) {
+      return false;
+    }
+    Node first = n.getFirstChild();
+    if (!first.isGetProp()) {
+      return false;
+    }
+    Node prop = first.getLastChild();
+    return prop.getString().equals("defineProperty")
+        && isKnownGlobalObjectReference(first.getFirstChild());
   }
 
   /**
@@ -5522,8 +5527,11 @@ public final class NodeUtil {
             && n.getFirstChild().isNumber()
             && n.getFirstChild().getDouble() == 0
             && n.getLastChild().isNumber()
-            && n.getLastChild().getDouble() == 0);
+            && n.getLastChild().getDouble() == 0)
+        || n.matchesQualifiedName(NUMBER_NAN);
   }
+
+  private static final Node NUMBER_NAN = IR.getprop(IR.name("Number"), IR.string("NaN"));
 
   /**
    * A change scope does not directly correspond to a language scope but is an internal

@@ -39,6 +39,7 @@
 package com.google.javascript.rhino;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Iterables;
@@ -46,14 +47,13 @@ import com.google.common.collect.Table;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
-import junit.framework.TestCase;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /** Tests for {@link HamtPMap}. */
 @RunWith(JUnit4.class)
-public class HamtPMapTest extends TestCase {
+public class HamtPMapTest {
   @Test
   public void testEmpty() {
     PMap<String, Integer> map = HamtPMap.empty();
@@ -255,12 +255,16 @@ public class HamtPMapTest extends TestCase {
     PMap<String, String> left = empty.plus("abc", "AAa").plus("def", "Ddd").plus("ghi", "ggG");
     PMap<String, String> right = empty.plus("abc", "aAA").plus("def", "ddD").plus("ghi", "GGG");
 
-    assertTrue(left.equivalent(right, new PMap.BiPredicate<String, String>() {
-      @Override
-      public boolean test(String left, String right) {
-        return left.toLowerCase().equals(right.toLowerCase());
-      }
-    }));
+    assertThat(
+            left.equivalent(
+                right,
+                new PMap.BiPredicate<String, String>() {
+                  @Override
+                  public boolean test(String left, String right) {
+                    return left.toLowerCase().equals(right.toLowerCase());
+                  }
+                }))
+        .isTrue();
   }
 
   @Test
@@ -270,13 +274,17 @@ public class HamtPMapTest extends TestCase {
     PMap<Integer, String> right = empty.plus(1, "3").plus(2, "4");
 
     int[] calls = new int[] { 0 };
-    assertFalse(left.equivalent(right, new PMap.BiPredicate<String, String>() {
-      @Override
-      public boolean test(String left, String right) {
-        calls[0]++;
-        return false;
-      }
-    }));
+    assertThat(
+            left.equivalent(
+                right,
+                new PMap.BiPredicate<String, String>() {
+                  @Override
+                  public boolean test(String left, String right) {
+                    calls[0]++;
+                    return false;
+                  }
+                }))
+        .isFalse();
     assertThat(calls[0]).isEqualTo(1);
   }
 
@@ -286,7 +294,9 @@ public class HamtPMapTest extends TestCase {
     @Override
     public V apply(T left, T right) {
       if (!table.contains(Optional.ofNullable(left), Optional.ofNullable(right))) {
-        fail("Unexpected invocation of JoinExpectation for (" + left + ", " + right + ")");
+        assertWithMessage(
+                "Unexpected invocation of JoinExpectation for (" + left + ", " + right + ")")
+            .fail();
       }
       return table.remove(Optional.ofNullable(left), Optional.ofNullable(right)).orElse(null);
     }
@@ -298,7 +308,7 @@ public class HamtPMapTest extends TestCase {
 
     void verify() {
       if (!table.isEmpty()) {
-        fail("Missing invocations of JoinExpectation: " + table);
+        assertWithMessage("Missing invocations of JoinExpectation: " + table).fail();
       }
     }
   }

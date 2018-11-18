@@ -80,6 +80,10 @@ public final class NodeSubject extends Subject<NodeSubject, Node> {
     check("checkTreeEquals(%s)", node).that(actual().checkTreeEquals(node)).isNull();
   }
 
+  public TypeSubject hasJSTypeThat() {
+    return TypeSubject.assertType(actual().getJSTypeRequired());
+  }
+
   public void hasType(Token type) {
     hasToken(type);
   }
@@ -92,6 +96,26 @@ public final class NodeSubject extends Subject<NodeSubject, Node> {
   public NodeSubject isName(String name) {
     check("isName()").that(actual().isName()).isTrue();
     check("getString()").that(actual().getString()).isEqualTo(name);
+    return this;
+  }
+
+  public NodeSubject isThis() {
+    check("isThis()").that(actual().isThis()).isTrue();
+    return this;
+  }
+
+  public NodeSubject isSuper() {
+    check("isSuper()").that(actual().isSuper()).isTrue();
+    return this;
+  }
+
+  public NodeSubject isArrowFunction() {
+    check("isArrowFunction()").that(actual().isArrowFunction()).isTrue();
+    return this;
+  }
+
+  public NodeSubject isCall() {
+    check("isCall()").that(actual().isCall()).isTrue();
     return this;
   }
 

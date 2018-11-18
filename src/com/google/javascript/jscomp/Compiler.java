@@ -269,6 +269,10 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   private String lastPassName;
 
   private Set<String> externProperties = null;
+  private ImmutableMap<String, PropertyAccessKind> externGetterAndSetterProperties =
+      ImmutableMap.of();
+  private ImmutableMap<String, PropertyAccessKind> sourceGetterAndSetterProperties =
+      ImmutableMap.of();
 
   private static final Joiner pathJoiner = Joiner.on(File.separator);
 
@@ -1815,7 +1819,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     hoistExterns();
     // Check if the sources need to be re-ordered.
     boolean staleInputs = false;
-    if (options.dependencyOptions.needsManagement()) {
+    if (options.getDependencyOptions().needsManagement()) {
       for (CompilerInput input : moduleGraph.getAllInputs()) {
         // Forward-declare all the provided types, so that they
         // are not flagged even if they are dropped from the process.
@@ -1825,7 +1829,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
       }
 
       try {
-        moduleGraph.manageDependencies(options.dependencyOptions);
+        moduleGraph.manageDependencies(options.getDependencyOptions());
         staleInputs = true;
       } catch (MissingProvideException e) {
         report(JSError.make(
@@ -1925,9 +1929,9 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     }
     this.moduleTypesByName.put(input.getPath().toModuleName(), input.getJsModuleType());
 
-    ArrayList<String> allDeps = new ArrayList<>();
-    allDeps.addAll(input.getRequiredSymbols());
-    allDeps.addAll(input.getDynamicRequires());
+    Iterable<String> allDeps =
+        Iterables.concat(
+            input.getRequiredSymbols(), input.getDynamicRequires(), input.getTypeRequires());
     for (String requiredNamespace : allDeps) {
       CompilerInput requiredInput = null;
       boolean requiredByModuleImport = false;
@@ -2046,7 +2050,7 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
     List<CompilerInput> filteredInputs = new ArrayList<>();
     for (CompilerInput input : inputsToProcess) {
       // Only process files that are detected as ES6 modules
-      if (!options.dependencyOptions.shouldPruneDependencies()
+      if (!options.getDependencyOptions().shouldPrune()
           || !JsFileParser.isSupported()
           || "es6".equals(input.getLoadFlags().get("module"))) {
         filteredInputs.add(input);
@@ -3182,6 +3186,28 @@ public class Compiler extends AbstractCompiler implements ErrorHandler, SourceFi
   @Override
   Set<String> getExternProperties() {
     return externProperties;
+  }
+
+  @Override
+  ImmutableMap<String, PropertyAccessKind> getExternGetterAndSetterProperties() {
+    return externGetterAndSetterProperties;
+  }
+
+  @Override
+  void setExternGetterAndSetterProperties(
+      ImmutableMap<String, PropertyAccessKind> externGetterAndSetterProperties) {
+    this.externGetterAndSetterProperties = externGetterAndSetterProperties;
+  }
+
+  @Override
+  ImmutableMap<String, PropertyAccessKind> getSourceGetterAndSetterProperties() {
+    return sourceGetterAndSetterProperties;
+  }
+
+  @Override
+  void setSourceGetterAndSetterProperties(
+      ImmutableMap<String, PropertyAccessKind> sourceGetterAndSetterProperties) {
+    this.sourceGetterAndSetterProperties = sourceGetterAndSetterProperties;
   }
 
   /**
