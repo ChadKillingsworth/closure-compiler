@@ -766,11 +766,11 @@ public final class DefaultPassConfig extends PassConfig {
       passes.add(extractPrototypeMemberDeclarations);
     }
 
-    if (options.shouldAmbiguateProperties()
-        && options.propertyRenaming == PropertyRenamingPolicy.ALL_UNQUOTED
-        && options.isTypecheckingEnabled()) {
-      passes.add(ambiguateProperties);
-    }
+//    if (options.shouldAmbiguateProperties()
+//        && options.propertyRenaming == PropertyRenamingPolicy.ALL_UNQUOTED
+//        && options.isTypecheckingEnabled()) {
+//      passes.add(ambiguateProperties);
+//    }
 
     if (options.propertyRenaming == PropertyRenamingPolicy.ALL_UNQUOTED) {
       passes.add(renameProperties);
